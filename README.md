@@ -1,4 +1,4 @@
-# FinnGen 3 Olink Proteomics Analysis Pipeline (Refactored)
+# FinnGen 3 Olink Proteomics Analysis Pipeline
 
 **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
 
@@ -8,19 +8,17 @@
 
 **Release Date**: January 2026
 
-**Pipeline Version**: Refactored for Docker deployment and public release
-
 ## Overview
 
-A comprehensive, Docker-ready R pipeline for analyzing Olink Explore HT (5K) proteomics data. This refactored version provides a clean, general-purpose workflow suitable for public release and Docker deployment.
+A comprehensive, Docker-ready R pipeline for analyzing Olink Explore HT (5K) proteomics data. This production-ready workflow provides a complete quality control and normalization pipeline for proteomics data analysis.
 
 **Key Features:**
-- **Starting Point**: Pre-filtered NPX matrix (AG samples already removed)
-- **Reordered QC Steps**: PCA → Technical → Z-score → Sex → pQTL
-- **No Hardcoded Paths**: Fully configurable via YAML config file
-- **Docker-Ready**: Complete Docker setup included
-- **Multi-Batch Support**: Process and harmonize multiple batches
-- **Comprehensive QC**: Multiple outlier detection methods with integrated reporting
+- **Comprehensive QC Pipeline**: Multi-stage quality control with PCA, technical, Z-score, sex mismatch, and pQTL-based outlier detection
+- **QC Machine Components**: Technical Outlier Check [PCA → Technical → Z-score] → Sample Provenance Check[Sex Outliers → pQTL-based Outliers]
+- **Fully Configurable**: All paths and parameters configured via YAML config file
+- **Docker-Ready**: Complete Docker setup with automated builds
+- **Multi-Batch Support**: Process and harmonize multiple batches with bridge sample normalization
+- **Comprehensive QC Reporting**: Integrated outlier tracking with detailed metrics and annotations
 
 **Pipeline Summary:**
 After comprehensive quality control including PCA outlier detection, technical outlier detection, Z-score outlier detection, sex mismatch detection, and pQTL-based outlier detection, typically **~96-97% of analysis-ready samples** pass all QC filters and are retained for downstream analysis.
@@ -36,7 +34,7 @@ After comprehensive quality control including PCA outlier detection, technical o
 
 ```mermaid
 flowchart TD
-    Start([Start]) --> Loader[00_data_loader.R<br/>Load pre-filtered NPX matrix<br/>Prepare analysis-ready data]
+    Start([Start]) --> Loader[00_data_loader.R<br/>Load NPX matrix<br/>Prepare analysis-ready data]
 
     Loader --> PCA[01_pca_outliers.R<br/>PCA analysis<br/>SD & IQR outlier detection]
 
@@ -102,7 +100,7 @@ flowchart TD
     Start --> OtherBatch[Other Batches<br/>batch_01, ...]
 
     %% Reference Batch Processing (Sequential)
-    RefBatch --> Ref00[00_data_loader.R<br/>Load pre-filtered NPX<br/>Prepare data]
+    RefBatch --> Ref00[00_data_loader.R<br/>Load NPX matrix<br/>Prepare data]
     Ref00 --> Ref01[01_pca_outliers.R<br/>PCA outlier detection]
     Ref01 --> Ref02[02_technical_outliers.R<br/>Technical outlier detection]
     Ref02 --> Ref03[03_zscore_outliers.R<br/>Z-score outlier detection]
@@ -124,7 +122,7 @@ flowchart TD
     Ref11 --> RefComplete([Reference Batch<br/>Complete])
 
     %% Other Batch Processing
-    OtherBatch --> Other00[00_data_loader.R<br/>Load pre-filtered NPX<br/>Prepare data]
+    OtherBatch --> Other00[00_data_loader.R<br/>Load NPX matrix<br/>Prepare data]
     Other00 --> Other01[01_pca_outliers.R<br/>PCA outlier detection]
     Other01 --> Other02[02_technical_outliers.R<br/>Technical outlier detection]
     Other02 --> Other03[03_zscore_outliers.R<br/>Z-score outlier detection]
@@ -199,9 +197,9 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
 ### Phase 1: Data Loading
 
 #### 00_data_loader.R
-- **Purpose**: Load pre-filtered NPX matrix and prepare analysis-ready data
+- **Purpose**: Load NPX matrix and prepare analysis-ready data
 - **Input**:
-  - Pre-filtered NPX matrix (Parquet format, AG samples already removed)
+  - NPX matrix (Parquet format)
   - Metadata file (TSV format)
   - Optional: Bridging sample information
 - **Output**:
@@ -215,7 +213,7 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
 - Bridge samples: ~2% (for cross-batch harmonization)
 - Non-FinnGen samples: Excluded from analysis
 
-### Phase 2: Quality Control (Reordered)
+### Phase 2: Quality Control
 
 #### 01_pca_outliers.R
 - **Purpose**: PCA-based outlier detection
@@ -225,8 +223,8 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - Sample median filter: median across proteins per sample within mean ± 5 SD
   - Sample IQR filter: IQR across proteins per sample within mean ± 5 SD
   - Removals are sequential; the final outlier set is the union of all removals
-- **Threshold**: 5×SD (matches original implementation for consistency)
-- **Rationale**: Matches Batch 1 implementation exactly for consistency across batches. Provides ~99.9999% specificity under normal distribution, more lenient than 4×SD to preserve samples with moderate expression pattern deviations whilst catching extreme outliers.
+- **Threshold**: 5×SD
+- **Rationale**: Provides ~99.9999% specificity under normal distribution, more lenient than 4×SD to preserve samples with moderate expression pattern deviations whilst catching extreme outliers. This threshold balances sensitivity and specificity for high-throughput proteomics data.
 - **PC Scaling**: Principal components PC1 and PC2 are scaled using:
 
   ```
@@ -498,7 +496,7 @@ Final (pre-normalization): 2,441 samples (96.79% of 2,522 analysis-ready)
 | Method | Threshold | Rationale |
 |--------|-----------|-----------|
 | **Initial QC** | Missing data: 10% per sample/protein | Balances retention with quality, aligned with Olink recommendations |
-| **PCA (PC1/PC2)** | mean ± 5×SD (after Olink scaling) | Matches Batch 1, ~99.9999% specificity |
+| **PCA (PC1/PC2)** | mean ± 5×SD (after Olink scaling) | ~99.9999% specificity under normal distribution |
 | **PCA (PC3/PC4)** | mean ± 5×SD | Sequential filtering, union of flags |
 | **PCA (Sample median)** | mean ± 5×SD | Detects extreme central tendency |
 | **PCA (Sample IQR)** | mean ± 5×SD | Detects unusual variability patterns |
@@ -582,9 +580,9 @@ The pipeline is configured via a YAML file. See `config/config.yaml.template` fo
 
 ### Required Files
 
-1. **Pre-filtered NPX Matrix** (Parquet format)
-   - Must have AG samples already removed
+1. **NPX Matrix** (Parquet format)
    - Format: Samples × Proteins matrix
+   - Should contain biological samples only (control/blank samples will be filtered during initial QC)
    - File: Specified in `config.yaml` → `data.npx_matrix_file`
 
 2. **Metadata File** (TSV format)
@@ -684,14 +682,14 @@ export PIPELINE_BATCH_ID=batch_01
 Rscript scripts/01_pca_outliers.R
 ```
 
-## Key Differences from Original Pipeline
+## Pipeline Design Principles
 
-1. **Starting Point**: Uses pre-filtered NPX matrix (AG samples already removed)
-2. **Reordered QC**: PCA → Technical → Z-score → Sex → pQTL
-3. **No Hardcoded Paths**: All paths configured via YAML
-4. **Simplified Config**: No AG sample paths needed
-5. **Docker-Ready**: Complete Docker setup included
-6. **Renumbered Steps**: Sequential numbering starting from 00
+1. **Modular Architecture**: Each step is a standalone script that can be run independently
+2. **QC Step Ordering**: PCA → Technical → Z-score → Sex → pQTL (optimized for sequential filtering)
+3. **Configuration-Driven**: All paths and parameters configured via YAML (no hardcoded paths)
+4. **Docker-Ready**: Complete Docker setup with automated builds via GitHub Actions
+5. **Sequential Numbering**: Steps numbered 00-11 for clear execution order
+6. **Multi-Format Outputs**: Supports RDS, Parquet, and TSV formats for maximum compatibility
 
 ## Multi-Batch Processing
 
@@ -762,9 +760,10 @@ parameters:
 
 If you use this pipeline, please cite:
 
-- **Pipeline**: FinnGen 3 Olink Proteomics Analysis Pipeline (Refactored Version)
+- **Pipeline**: FinnGen 3 Olink Proteomics Analysis Pipeline
 - **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
-- **Version**: December 2025
+- **Version**: 1.0.0
+- **Release Date**: January 2026
 - **Platform**: Olink Explore HT (5K)
 
 ## License
