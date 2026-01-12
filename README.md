@@ -1,9 +1,13 @@
 # FinnGen 3 Olink Proteomics Analysis Pipeline (Refactored)
 
 **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
+
 **Platform**: Olink Explore HT (5K)
+
 **Version**: 1.0.0
+
 **Release Date**: January 2026
+
 **Pipeline Version**: Refactored for Docker deployment and public release
 
 ## Overview
@@ -224,10 +228,12 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
 - **Threshold**: 5×SD (matches original implementation for consistency)
 - **Rationale**: Matches Batch 1 implementation exactly for consistency across batches. Provides ~99.9999% specificity under normal distribution, more lenient than 4×SD to preserve samples with moderate expression pattern deviations whilst catching extreme outliers.
 - **PC Scaling**: Principal components PC1 and PC2 are scaled using:
-  $$
-  \text{PC}_i^{\text{scaled}} = \frac{\text{PC}_i}{\sigma_{\text{PC}_i} \times \sqrt{n}}
-  $$
-  where $\sigma_{\text{PC}_i}$ is the standard deviation of $\text{PC}_i$ and $n$ is the number of samples (follows Olink documentation).
+
+  ```
+  PC_i^scaled = PC_i / (σ_PC_i × √n)
+  ```
+
+  where σ_PC_i is the standard deviation of PC_i and n is the number of samples (follows Olink documentation).
 - **Expected Results**: ~0.95% of analysis-ready samples flagged (e.g., 24/2,522)
 - **Output**:
   - `01_npx_matrix_pca_cleaned.rds`: PCA-cleaned matrix
@@ -763,10 +769,27 @@ If you use this pipeline, please cite:
 
 ## License
 
-[Specify license]
+Copyright (c) 2026 Reza Jabal, PhD / Broad Institute of MIT & Harvard
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## Contact
 
 For questions or issues, please contact:
 - **Reza Jabal, PhD**: rjabal@broadinstitute.org
-- **GitHub Issues**: [Repository URL]
