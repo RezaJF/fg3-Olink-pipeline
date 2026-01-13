@@ -54,26 +54,90 @@ ensure_output_dir(log_path)
 log_appender(appender_file(log_path))
 log_info("Starting data loader for batch: {batch_id}")
 
-# Function to load NPX matrix from parquet
-load_npx_matrix_from_parquet <- function(parquet_file) {
-  log_info("Loading NPX matrix from parquet: {parquet_file}")
+# Function to detect file format from extension
+detect_file_format <- function(file_path) {
+  ext <- tolower(tools::file_ext(file_path))
+  if (ext %in% c("parquet")) {
+    return("parquet")
+  } else if (ext %in% c("rds")) {
+    return("rds")
+  } else if (ext %in% c("tsv", "txt", "csv")) {
+    return("tsv")
+  } else {
+    # Try to infer from content
+    if (grepl("\\.parquet$", file_path, ignore.case = TRUE)) {
+      return("parquet")
+    } else if (grepl("\\.rds$", file_path, ignore.case = TRUE)) {
+      return("rds")
+    } else {
+      return("tsv")  # Default to TSV
+    }
+  }
+}
 
-  if (!file.exists(parquet_file)) {
-    stop("NPX matrix parquet file not found: ", parquet_file)
+# Function to load NPX matrix from various formats (parquet, RDS, TSV)
+load_npx_matrix <- function(matrix_file) {
+  log_info("Loading NPX matrix from: {matrix_file}")
+
+  if (!file.exists(matrix_file)) {
+    stop("NPX matrix file not found: ", matrix_file)
   }
 
-  # Read parquet file
-  dt <- read_parquet(parquet_file)
-  setDT(dt)
+  file_format <- detect_file_format(matrix_file)
+  log_info("Detected file format: {file_format}")
+
+  # Load based on format
+  if (file_format == "parquet") {
+    dt <- read_parquet(matrix_file)
+    setDT(dt)
+  } else if (file_format == "rds") {
+    data <- readRDS(matrix_file)
+    # Handle both matrix and data.table/data.frame
+    if (is.matrix(data)) {
+      dt <- as.data.table(data)
+      dt[, SampleID := rownames(data)]
+      setcolorder(dt, c("SampleID", setdiff(names(dt), "SampleID")))
+    } else if (is.data.frame(data) || is.data.table(data)) {
+      dt <- as.data.table(data)
+    } else {
+      stop("RDS file does not contain a matrix, data.frame, or data.table")
+    }
+  } else {  # TSV or CSV
+    # Try to detect separator
+    first_line <- readLines(matrix_file, n = 1)
+    if (grepl("\t", first_line)) {
+      sep <- "\t"
+    } else if (grepl(",", first_line)) {
+      sep <- ","
+    } else {
+      sep <- "\t"  # Default to tab
+    }
+    dt <- fread(matrix_file, sep = sep)
+  }
 
   # Check if SampleID column exists
   if (!"SampleID" %in% names(dt)) {
-    # Try first column as SampleID
-    if (ncol(dt) > 0) {
-      setnames(dt, names(dt)[1], "SampleID")
-      log_info("Using first column as SampleID")
+    # Try common alternatives
+    id_cols <- c("SAMPLE_ID", "sample_id", "Sample_ID", "ID", "id")
+    found_id_col <- NULL
+    for (col in id_cols) {
+      if (col %in% names(dt)) {
+        found_id_col <- col
+        break
+      }
+    }
+    
+    if (!is.null(found_id_col)) {
+      setnames(dt, found_id_col, "SampleID")
+      log_info("Renamed column '{found_id_col}' to 'SampleID'")
     } else {
-      stop("Could not identify SampleID column in parquet file")
+      # Try first column as SampleID
+      if (ncol(dt) > 0) {
+        setnames(dt, names(dt)[1], "SampleID")
+        log_info("Using first column as SampleID")
+      } else {
+        stop("Could not identify SampleID column in matrix file")
+      }
     }
   }
 
@@ -258,6 +322,103 @@ validate_mapping <- function(mapping, npx_matrix) {
   return(validation)
 }
 
+# Function to create long-format samples_data_raw from wide matrix
+# This reconstructs the long-format structure needed for technical outlier detection
+# Format: Multiple rows per sample (one per protein), matching original pipeline structure
+create_long_format_samples_data <- function(npx_matrix, metadata) {
+  log_info("Reconstructing long-format samples_data_raw from wide matrix")
+  log_info("  This is required for technical outlier detection (sd_npx calculation)")
+
+  # Get sample IDs and protein names
+  sample_ids <- rownames(npx_matrix)
+  protein_names <- colnames(npx_matrix)
+  n_samples <- length(sample_ids)
+  n_proteins <- length(protein_names)
+
+  log_info("  Matrix dimensions: {n_samples} samples × {n_proteins} proteins")
+  log_info("  Expected long-format rows: {n_samples * n_proteins}")
+
+  # Create PlateID mapping from metadata
+  plate_map <- NULL
+  if (!is.null(metadata) && "PlateID" %in% names(metadata) && "SAMPLE_ID" %in% names(metadata)) {
+    plate_map <- metadata[, .(SAMPLE_ID, PlateID)]
+    log_info("  PlateID mapping available for {nrow(plate_map)} samples")
+  } else {
+    log_warn("  PlateID not found in metadata - will be set to NA")
+  }
+
+  # Melt matrix to long format
+  # Convert matrix to data.table with SampleID
+  dt_matrix <- as.data.table(npx_matrix, keep.rownames = "SampleID")
+  
+  # Melt to long format: SampleID, Assay (protein), NPX
+  samples_data_long <- melt(
+    dt_matrix,
+    id.vars = "SampleID",
+    variable.name = "Assay",
+    value.name = "NPX",
+    variable.factor = FALSE
+  )
+
+  # Add PlateID from metadata
+  if (!is.null(plate_map)) {
+    samples_data_long <- merge(
+      samples_data_long,
+      plate_map,
+      by.x = "SampleID",
+      by.y = "SAMPLE_ID",
+      all.x = TRUE
+    )
+  } else {
+    samples_data_long[, PlateID := NA_character_]
+  }
+
+  # Add QC flags (default to PASS since we're working with pre-filtered data)
+  samples_data_long[, SampleQC := "PASS"]
+  samples_data_long[, AssayQC := "PASS"]
+
+  # Add SampleType (all should be SAMPLE since controls are already filtered)
+  samples_data_long[, SampleType := "SAMPLE"]
+
+  # Set column order to match original pipeline structure
+  setcolorder(samples_data_long, c("SampleID", "Assay", "NPX", "PlateID", "SampleQC", "AssayQC", "SampleType"))
+
+  # Validate structure
+  n_rows_expected <- n_samples * n_proteins
+  n_rows_actual <- nrow(samples_data_long)
+  
+  if (n_rows_actual != n_rows_expected) {
+    log_warn("  Row count mismatch: expected {n_rows_expected}, got {n_rows_actual}")
+  } else {
+    log_info("  Long-format structure validated: {n_rows_actual} rows")
+  }
+
+  # Validate that each sample has the correct number of proteins
+  sample_counts <- samples_data_long[, .N, by = SampleID]
+  expected_per_sample <- n_proteins
+  mismatched_samples <- sample_counts[N != expected_per_sample]
+  
+  if (nrow(mismatched_samples) > 0) {
+    log_warn("  {nrow(mismatched_samples)} samples have incorrect protein counts")
+  } else {
+    log_info("  All samples have {expected_per_sample} protein measurements")
+  }
+
+  # Verify that sd_npx can be calculated (critical for technical outlier detection)
+  test_sample <- sample_ids[1]
+  test_data <- samples_data_long[SampleID == test_sample]
+  test_sd <- sd(test_data$NPX, na.rm = TRUE)
+  
+  if (is.na(test_sd) || length(test_data$NPX) < 2) {
+    log_error("  CRITICAL: Cannot calculate sd_npx - long-format structure is incorrect!")
+    stop("Long-format samples_data_raw structure validation failed")
+  } else {
+    log_info("  Validation passed: sd_npx calculation works (test sample SD: {sprintf('%.3f', test_sd)})")
+  }
+
+  return(samples_data_long)
+}
+
 # Main execution
 main <- function() {
 
@@ -287,7 +448,7 @@ main <- function() {
 
   # Load data
   log_info("Loading data...")
-  npx_matrix <- load_npx_matrix_from_parquet(npx_matrix_file)
+  npx_matrix <- load_npx_matrix(npx_matrix_file)
   metadata <- load_metadata(metadata_file)
 
   # Load optional bridging sample information
@@ -349,35 +510,20 @@ main <- function() {
   ensure_output_dir(npx_matrix_analysis_ready_path)
   saveRDS(analysis_matrix, npx_matrix_analysis_ready_path)
 
-  # Create minimal samples_data_raw from metadata for downstream steps (needed for plate info)
-  # Since we start from pre-filtered matrix, we create a minimal long-format data table
-  log_info("Creating minimal samples_data_raw from metadata...")
-  samples_data_raw <- data.table(
-    SampleID = rownames(analysis_matrix)
-  )
-  # Add PlateID from metadata where available
-  if("PlateID" %in% names(metadata)) {
-    plate_map <- metadata[, .(SAMPLE_ID, PlateID)]
-    samples_data_raw <- merge(
-      samples_data_raw,
-      plate_map,
-      by.x = "SampleID",
-      by.y = "SAMPLE_ID",
-      all.x = TRUE
-    )
-  } else {
-    samples_data_raw[, PlateID := NA_character_]
-  }
-  # Add NPX column (mean NPX per sample for compatibility)
-  sample_means <- rowMeans(analysis_matrix, na.rm = TRUE)
-  samples_data_raw[, NPX := sample_means[SampleID]]
-  samples_data_raw[, SampleQC := "PASS"]  # Default QC pass
-  samples_data_raw[, AssayQC := "PASS"]   # Default QC pass
+  # Create long-format samples_data_raw from wide matrix for downstream steps
+  # This is CRITICAL for technical outlier detection which needs to calculate sd_npx
+  # across all proteins per sample (requires multiple rows per sample)
+  log_info("Creating long-format samples_data_raw from matrix...")
+  samples_data_raw <- create_long_format_samples_data(analysis_matrix, metadata)
 
   samples_data_raw_path <- get_output_path(step_num, "samples_data_raw", batch_id, "qc", config = config)
   ensure_output_dir(samples_data_raw_path)
   saveRDS(samples_data_raw, samples_data_raw_path)
-  log_info("Saved minimal samples_data_raw: {samples_data_raw_path} ({nrow(samples_data_raw)} samples)")
+  log_info("Saved long-format samples_data_raw: {samples_data_raw_path}")
+  log_info("  - Total rows: {nrow(samples_data_raw)} (long format: sample × protein pairs)")
+  log_info("  - Unique samples: {length(unique(samples_data_raw$SampleID))}")
+  log_info("  - Unique proteins: {length(unique(samples_data_raw$Assay))}")
+  log_info("  - Average proteins per sample: {round(nrow(samples_data_raw) / length(unique(samples_data_raw$SampleID)), 1)}")
 
   # Save duplicate FINNGENIDs if any
   if(nrow(validation$duplicate_finngenids) > 0) {
@@ -413,10 +559,32 @@ main <- function() {
     saveRDS(bridge_result, bridge_result_path)
   }
 
+  # Validate long-format samples_data_raw structure
+  log_info("Validating long-format samples_data_raw structure...")
+  sample_stats_test <- samples_data_raw[, .(
+    n_proteins = .N,
+    mean_npx = mean(NPX, na.rm = TRUE),
+    sd_npx = sd(NPX, na.rm = TRUE)
+  ), by = SampleID]
+  
+  n_valid_sd <- sum(!is.na(sample_stats_test$sd_npx))
+  n_samples_total <- nrow(sample_stats_test)
+  
+  if (n_valid_sd == n_samples_total) {
+    log_info("  ✓ All {n_samples_total} samples have valid sd_npx (technical outlier detection will work)")
+  } else {
+    log_error("  ✗ Only {n_valid_sd}/{n_samples_total} samples have valid sd_npx")
+    stop("Long-format samples_data_raw validation failed - technical outlier detection will not work")
+  }
+
   # Print summary
   cat("\n=== DATA LOADER SUMMARY ===\n")
+  cat("Input file format: ", detect_file_format(npx_matrix_file), "\n", sep = "")
   cat("NPX matrix loaded: ", nrow(npx_matrix), " samples x ", ncol(npx_matrix), " proteins\n", sep = "")
   cat("Analysis-ready samples: ", nrow(analysis_samples), "\n", sep = "")
+  cat("Long-format samples_data_raw: ", nrow(samples_data_raw), " rows (", 
+      length(unique(samples_data_raw$SampleID)), " samples × ", 
+      length(unique(samples_data_raw$Assay)), " proteins)\n", sep = "")
   cat("Sample types:\n")
   print(table(sample_mapping$sample_type))
   if(nrow(validation$duplicate_finngenids) > 0) {

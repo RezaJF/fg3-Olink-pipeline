@@ -388,6 +388,27 @@ normalize_data <- function(npx_matrix, method = "bridge",
 evaluate_normalization <- function(raw_matrix, normalized_matrix, metadata) {
   log_info("Evaluating normalization performance")
 
+  # Validate inputs
+  if (is.null(normalized_matrix)) {
+    log_error("normalized_matrix is NULL - cannot evaluate normalization")
+    stop("normalized_matrix is NULL in evaluate_normalization()")
+  }
+  
+  if (!is.matrix(normalized_matrix) && !is.data.frame(normalized_matrix)) {
+    log_error("normalized_matrix is not a matrix or data.frame")
+    stop("normalized_matrix must be a matrix or data.frame")
+  }
+  
+  if (nrow(normalized_matrix) == 0 || ncol(normalized_matrix) == 0) {
+    log_error("normalized_matrix has zero dimensions: {nrow(normalized_matrix)} x {ncol(normalized_matrix)}")
+    stop("normalized_matrix has invalid dimensions")
+  }
+  
+  if (nrow(normalized_matrix) != nrow(raw_matrix) || ncol(normalized_matrix) != ncol(raw_matrix)) {
+    log_error("Dimension mismatch: raw_matrix {nrow(raw_matrix)}x{ncol(raw_matrix)} vs normalized_matrix {nrow(normalized_matrix)}x{ncol(normalized_matrix)}")
+    stop("raw_matrix and normalized_matrix must have the same dimensions")
+  }
+
   # For log-transformed data like NPX, use SD and MAD instead of CV
   # (CV is not meaningful when data is centered around 0)
 
@@ -608,48 +629,145 @@ main <- function() {
   # Get bridge sample IDs
   bridge_samples <- bridge_result$bridge_ids
 
-  # Apply selected normalization method (bridge as default per requirements)
-  normalized_result <- normalize_data(
-    npx_matrix,
-    method = "bridge",  # Using bridge normalization as specified
-    bridge_samples = bridge_samples,
-    plate_info = plate_info,
-    batch_info = batch_info,
-    reference_batch = batch1_npx_matrix,
-    bridge_mapping = bridge_mapping,
-    multi_batch_mode = multi_batch_mode
-  )
+  # Apply normalization based on mode
+  if (multi_batch_mode) {
+    log_info("=== MULTI-BATCH MODE: Applying bridge normalization (primary) ===")
+    log_info("Bridge normalization is required for cross-batch harmonization")
+    
+    # Primary normalization: Bridge (for cross-batch harmonization)
+    normalized_result <- normalize_data(
+      npx_matrix,
+      method = "bridge",
+      bridge_samples = bridge_samples,
+      plate_info = plate_info,
+      batch_info = batch_info,
+      reference_batch = batch1_npx_matrix,
+      bridge_mapping = bridge_mapping,
+      multi_batch_mode = multi_batch_mode
+    )
 
-  # Also generate alternative normalizations for comparison
-  log_info("Generating alternative normalizations for comparison")
+    # Check if bridge normalization succeeded
+    if (is.null(normalized_result)) {
+      log_error("Bridge normalization failed in multi-batch mode")
+      log_error("This is required for cross-batch harmonization - cannot proceed")
+      stop("Bridge normalization failed - required for multi-batch mode")
+    }
 
-  norm_median <- normalize_data(npx_matrix, method = "median")
-  norm_median_plate <- normalize_data(npx_matrix, method = "median_plate", plate_info = plate_info)
-  norm_combat <- normalize_data(npx_matrix, method = "combat", batch_info = batch_info)
+    # Generate alternative normalizations for comparison (multi-batch mode)
+    log_info("Generating alternative normalizations for comparison (multi-batch mode)")
+    
+    norm_median <- normalize_data(npx_matrix, method = "median")
+    norm_combat <- normalize_data(npx_matrix, method = "combat", batch_info = batch_info)
+    norm_median_plate <- NULL  # Not typically used in multi-batch mode
+    
+  } else {
+    log_info("=== SINGLE-BATCH MODE: Applying median normalization (standard intra-batch step) ===")
+    log_info("Median normalization ensures samples are comparable within the batch")
+    log_info("Bridge normalization and ComBat are only applicable in multi-batch mode")
+    
+    # Primary normalization: Median (standard for single-batch)
+    normalized_result <- normalize_data(npx_matrix, method = "median")
+    
+    if (is.null(normalized_result)) {
+      log_error("Median normalization failed")
+      stop("Normalization failed - cannot proceed")
+    }
+    
+    # In single-batch mode, only median normalization is applied
+    # Bridge and ComBat don't make sense for single batch
+    norm_median <- NULL
+    norm_combat <- NULL
+    norm_median_plate <- NULL
+    
+    log_info("Single-batch mode: Only median normalization applied (no alternatives needed)")
+  }
 
-  # Evaluate normalizations
-  eval_bridge <- evaluate_normalization(npx_matrix, normalized_result$normalized_matrix, metadata)
-  eval_median <- evaluate_normalization(npx_matrix, norm_median$normalized_matrix, metadata)
-  eval_median_plate <- evaluate_normalization(npx_matrix, norm_median_plate$normalized_matrix, metadata)
-  eval_combat <- evaluate_normalization(npx_matrix, norm_combat$normalized_matrix, metadata)
+  # Evaluate normalizations based on mode
+  if (multi_batch_mode) {
+    # Multi-batch mode: Evaluate bridge (primary), median, and ComBat
+    log_info("Evaluating normalizations (multi-batch mode)")
+    
+    eval_bridge <- evaluate_normalization(npx_matrix, normalized_result$normalized_matrix, metadata)
+    
+    # Validate alternative normalizations before evaluation
+    if (is.null(norm_median) || is.null(norm_median$normalized_matrix)) {
+      log_warn("Median normalization failed - skipping evaluation")
+      norm_median <- NULL
+      eval_median <- NULL
+    } else {
+      eval_median <- evaluate_normalization(npx_matrix, norm_median$normalized_matrix, metadata)
+    }
+    
+    if (is.null(norm_combat) || is.null(norm_combat$normalized_matrix)) {
+      log_warn("ComBat normalization failed - skipping evaluation")
+      norm_combat <- NULL
+      eval_combat <- NULL
+    } else {
+      eval_combat <- evaluate_normalization(npx_matrix, norm_combat$normalized_matrix, metadata)
+    }
+    
+    eval_median_plate <- NULL  # Not used in multi-batch mode
+    
+  } else {
+    # Single-batch mode: Only evaluate median normalization
+    log_info("Evaluating normalization (single-batch mode: median only)")
+    
+    eval_bridge <- NULL  # Not applicable in single-batch mode
+    eval_median <- evaluate_normalization(npx_matrix, normalized_result$normalized_matrix, metadata)
+    eval_median_plate <- NULL  # Not used
+    eval_combat <- NULL  # Not applicable in single-batch mode
+  }
 
-  # Combine evaluations
-  all_evaluations <- rbind(
-    cbind(method = "bridge", eval_bridge),
-    cbind(method = "median", eval_median),
-    cbind(method = "median_plate", eval_median_plate),
-    cbind(method = "combat", eval_combat)
-  )
+  # Combine evaluations based on mode
+  if (multi_batch_mode) {
+    # Multi-batch mode: Include bridge (primary), median, and ComBat
+    evaluation_list <- list(
+      bridge = cbind(method = "bridge", eval_bridge)
+    )
+    
+    if (!is.null(eval_median)) {
+      evaluation_list$median <- cbind(method = "median", eval_median)
+    }
+    
+    if (!is.null(eval_combat)) {
+      evaluation_list$combat <- cbind(method = "combat", eval_combat)
+    }
+    
+    all_evaluations <- do.call(rbind, evaluation_list)
+    
+  } else {
+    # Single-batch mode: Only median normalization
+    all_evaluations <- cbind(method = "median", eval_median)
+  }
 
-  # Create plots
-  plot_bridge <- create_normalization_plots(npx_matrix, normalized_result$normalized_matrix, "- Bridge")
-  plot_median <- create_normalization_plots(npx_matrix, norm_median$normalized_matrix, "- Median")
-  plot_combat <- create_normalization_plots(npx_matrix, norm_combat$normalized_matrix, "- ComBat")
+  # Create plots based on mode
+  if (multi_batch_mode) {
+    # Multi-batch mode: Create plots for bridge (primary), median, and ComBat
+    plot_bridge <- create_normalization_plots(npx_matrix, normalized_result$normalized_matrix, "- Bridge (Primary)")
+    
+    plot_median <- if (!is.null(norm_median)) {
+      create_normalization_plots(npx_matrix, norm_median$normalized_matrix, "- Median (Comparison)")
+    } else {
+      NULL
+    }
+    
+    plot_combat <- if (!is.null(norm_combat)) {
+      create_normalization_plots(npx_matrix, norm_combat$normalized_matrix, "- ComBat (Comparison)")
+    } else {
+      NULL
+    }
+    
+  } else {
+    # Single-batch mode: Only plot median normalization
+    plot_bridge <- NULL  # Not applicable
+    plot_median <- create_normalization_plots(npx_matrix, normalized_result$normalized_matrix, "- Median")
+    plot_combat <- NULL  # Not applicable
+  }
 
   # Save outputs with batch-aware paths
   log_info("Saving normalization results")
 
-  # Save primary normalization (bridge) with 08_ prefix
+  # Save primary normalization with 06_ prefix
   normalized_matrix_path <- get_output_path(step_num, "npx_matrix_normalized", batch_id, "normalized", config = config)
   normalization_result_path <- get_output_path(step_num, "normalization_result", batch_id, "normalized", config = config)
   ensure_output_dir(normalized_matrix_path)
@@ -657,25 +775,50 @@ main <- function() {
 
   saveRDS(normalized_result$normalized_matrix, normalized_matrix_path)
   saveRDS(normalized_result, normalization_result_path)
+  
+  log_info("Saved primary normalization ({normalized_result$method}): {normalized_matrix_path}")
 
-  # Save alternative normalizations with 08_ prefix
+  # Prepare paths for alternative normalizations (only used in multi-batch mode)
   median_path <- get_output_path(step_num, "npx_matrix_normalized_median", batch_id, "normalized", config = config)
-  median_plate_path <- get_output_path(step_num, "npx_matrix_normalized_median_plate", batch_id, "normalized", config = config)
   combat_path <- get_output_path(step_num, "npx_matrix_normalized_combat", batch_id, "normalized", config = config)
   ensure_output_dir(median_path)
-  ensure_output_dir(median_plate_path)
   ensure_output_dir(combat_path)
 
-  saveRDS(norm_median$normalized_matrix, median_path)
-  saveRDS(norm_median_plate$normalized_matrix, median_plate_path)
-  saveRDS(norm_combat$normalized_matrix, combat_path)
+  # Save alternative normalizations based on mode
+  if (multi_batch_mode) {
+    # Multi-batch mode: Save median and ComBat for comparison
+    log_info("Saving alternative normalizations (multi-batch mode)")
+    
+    if (!is.null(norm_median)) {
+      saveRDS(norm_median$normalized_matrix, median_path)
+      log_info("Saved median normalization (comparison): {median_path}")
+    } else {
+      log_warn("Skipping median normalization save (normalization failed)")
+    }
+    
+    if (!is.null(norm_combat)) {
+      saveRDS(norm_combat$normalized_matrix, combat_path)
+      log_info("Saved ComBat normalization (comparison): {combat_path}")
+    } else {
+      log_warn("Skipping ComBat normalization save (normalization failed)")
+    }
+    
+    # Median-plate not typically used in multi-batch mode
+    log_info("Median-plate normalization not saved (not used in multi-batch mode)")
+    
+  } else {
+    # Single-batch mode: No alternative normalizations to save
+    log_info("Single-batch mode: Only median normalization saved (no alternatives needed)")
+    log_info("Bridge and ComBat normalizations are not applicable in single-batch mode")
+  }
 
-  # Save evaluations with 08_ prefix
+  # Save evaluations with 06_ prefix
   evaluations_path <- get_output_path(step_num, "normalization_evaluations", batch_id, "normalized", "tsv", config = config)
   ensure_output_dir(evaluations_path)
   fwrite(all_evaluations, evaluations_path, sep = "\t")
+  log_info("Saved normalization evaluations: {evaluations_path}")
 
-  # Save plots with 08_ prefix
+  # Prepare plot paths (mode-dependent usage)
   bridge_plot_path <- get_output_path(step_num, "normalization_effect_bridge", batch_id, "normalized", "pdf", config = config)
   median_plot_path <- get_output_path(step_num, "normalization_effect_median", batch_id, "normalized", "pdf", config = config)
   combat_plot_path <- get_output_path(step_num, "normalization_effect_combat", batch_id, "normalized", "pdf", config = config)
@@ -683,19 +826,52 @@ main <- function() {
   ensure_output_dir(median_plot_path)
   ensure_output_dir(combat_plot_path)
 
-  ggsave(bridge_plot_path, plot_bridge, width = 14, height = 9)
-  ggsave(median_plot_path, plot_median, width = 14, height = 9)
-  ggsave(combat_plot_path, plot_combat, width = 14, height = 9)
+  # Save plots based on mode
+  if (multi_batch_mode) {
+    # Multi-batch mode: Save bridge, median, and ComBat plots
+    if (!is.null(plot_bridge)) {
+      ggsave(bridge_plot_path, plot_bridge, width = 14, height = 9)
+    }
+    
+    if (!is.null(plot_median)) {
+      ggsave(median_plot_path, plot_median, width = 14, height = 9)
+    } else {
+      log_warn("Skipping median normalization plot (normalization failed)")
+    }
+    
+    if (!is.null(plot_combat)) {
+      ggsave(combat_plot_path, plot_combat, width = 14, height = 9)
+    } else {
+      log_warn("Skipping ComBat normalization plot (normalization failed)")
+    }
+    
+  } else {
+    # Single-batch mode: Only save median plot
+    if (!is.null(plot_median)) {
+      ggsave(median_plot_path, plot_median, width = 14, height = 9)
+    }
+  }
 
   # Print summary
   cat("\n=== NORMALIZATION SUMMARY ===\n")
-  cat("Primary method:", normalized_result$method, "\n")
+  if (multi_batch_mode) {
+    cat("Mode: MULTI-BATCH\n")
+    cat("Primary method:", normalized_result$method, "\n")
+    if(normalized_result$method == "bridge" || normalized_result$method == "bridge_cross_batch") {
+      cat("Bridge samples used:", length(normalized_result$bridge_samples_used), "\n")
+      if (!is.null(normalized_result$bridge_samples_batch1)) {
+        cat("Bridge samples in reference batch:", length(normalized_result$bridge_samples_batch1), "\n")
+      }
+    }
+    cat("Alternative methods:", if (!is.null(norm_median)) "median" else "", 
+        if (!is.null(norm_combat)) "ComBat" else "", "\n")
+  } else {
+    cat("Mode: SINGLE-BATCH\n")
+    cat("Method: Median normalization (standard intra-batch step)\n")
+    cat("Note: Bridge normalization and ComBat are only applicable in multi-batch mode\n")
+  }
   cat("Matrix dimensions:", nrow(normalized_result$normalized_matrix), "x",
       ncol(normalized_result$normalized_matrix), "\n")
-
-  if(normalized_result$method == "bridge") {
-    cat("Bridge samples used:", length(normalized_result$bridge_samples_used), "\n")
-  }
 
   cat("\n=== NORMALIZATION EVALUATION ===\n")
   print(all_evaluations)
@@ -704,15 +880,28 @@ main <- function() {
 
   log_info("Normalization completed")
 
+  # Build alternative normalizations list based on mode
+  alternative_normalizations <- list()
+  
+  if (multi_batch_mode) {
+    # Multi-batch mode: Include median and ComBat for comparison
+    if (!is.null(norm_median)) {
+      alternative_normalizations$median <- norm_median
+    }
+    if (!is.null(norm_combat)) {
+      alternative_normalizations$combat <- norm_combat
+    }
+  } else {
+    # Single-batch mode: No alternatives (only median is primary)
+    log_info("Single-batch mode: No alternative normalizations (median is primary)")
+  }
+
   return(list(
     normalized_matrix = normalized_result$normalized_matrix,
     normalization_result = normalized_result,
     evaluations = all_evaluations,
-    alternative_normalizations = list(
-      median = norm_median,
-      median_plate = norm_median_plate,
-      combat = norm_combat
-    )
+    alternative_normalizations = alternative_normalizations,
+    mode = if (multi_batch_mode) "multi_batch" else "single_batch"
   ))
 }
 

@@ -15,6 +15,7 @@
 A comprehensive, Docker-ready R pipeline for analyzing Olink Explore HT (5K) proteomics data. This production-ready workflow provides a complete quality control and normalization pipeline for proteomics data analysis.
 
 **Key Features:**
+- **Multi-Format Input Support**: Accepts NPX matrices in Parquet, RDS, or TSV formats with automatic format detection
 - **Comprehensive QC Pipeline**: Multi-stage quality control with PCA, technical, Z-score, sex mismatch, and pQTL-based outlier detection
 - **QC Machine Components**: Technical Outlier Check [PCA → Technical → Z-score] → Sample Provenance Check[Sex Outliers → pQTL-based Outliers]
 - **Fully Configurable**: All paths and parameters configured via YAML config file
@@ -60,9 +61,9 @@ flowchart TD
 
     ProvenanceRun --> QCReport[05d_qc_comprehensive_report.R<br/>Comprehensive QC report<br/>Integrated outlier tracking]
 
-    QCReport --> Normalize[06_normalize_data.R<br/>Data normalization<br/>Median/ComBat options]
+    QCReport --> Normalize[06_normalize_data.R<br/>Median normalization<br/>Standard intra-batch step]
 
-    Normalize --> BridgeNorm{07_bridge_normalization.R<br/>Optional: Multi-batch only<br/>Enhanced bridge methods}
+    Normalize --> BridgeNorm{07_bridge_normalization.R<br/>Optional: Multi-batch only<br/>Enhanced bridge methods<br/>Not used in single-batch}
 
     BridgeNorm -->|Enabled| BridgeNormRun[Enhanced Bridge<br/>Quantile normalization]
     BridgeNorm -->|Disabled| Covariate
@@ -115,7 +116,7 @@ flowchart TD
     Ref05c -->|Enabled| Ref05cRun[Provenance Test]
     Ref05c -->|Disabled| Ref05d
     Ref05cRun --> Ref05d[05d_qc_comprehensive_report.R<br/>Comprehensive QC report]
-    Ref05d --> Ref06[06_normalize_data.R<br/>Single-batch normalization]
+    Ref05d --> Ref06[06_normalize_data.R<br/>Median normalization<br/>Standard intra-batch step]
     Ref06 --> Ref07[07_bridge_normalization.R<br/>Enhanced bridge normalization]
     Ref07 --> Ref08[08_covariate_adjustment.R<br/>Covariate adjustment]
     Ref08 --> Ref09[09_prepare_phenotypes.R<br/>Prepare phenotypes]
@@ -137,7 +138,7 @@ flowchart TD
     Other05c -->|Enabled| Other05cRun[Provenance Test]
     Other05c -->|Disabled| Other05d
     Other05cRun --> Other05d[05d_qc_comprehensive_report.R<br/>Comprehensive QC report]
-    Other05d --> Other06[06_normalize_data.R<br/>Multi-batch normalization<br/>Uses: Bridge samples from both batches]
+    Other05d --> Other06[06_normalize_data.R<br/>Multi-batch normalization<br/>Primary: Bridge normalization<br/>Comparison: ComBat & Median<br/>Uses: Bridge samples from both batches]
     Other06 --> Other07[07_bridge_normalization.R<br/>Enhanced bridge normalization<br/>Uses: QCed data from both batches]
     Other07 --> Other08[08_covariate_adjustment.R<br/>Covariate adjustment]
     Other08 --> Other09[09_prepare_phenotypes.R<br/>Prepare phenotypes]
@@ -375,17 +376,31 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
 ### Phase 3: Normalization
 
 #### 06_normalize_data.R
-- **Purpose**: Cross-batch/cross-plate harmonization to remove technical variability
-- **Methods**:
-  1. **Median Normalization** (recommended): Per-protein median scaling
-  2. **Bridge Normalization**: Uses bridge samples as reference standards
-  3. **ComBat Batch Correction**: Parametric empirical Bayes framework
-- **Evaluation**: Coefficient of Variation (CV) reduction
-- **Expected Performance**: Median normalization typically achieves ~9.7% SD reduction (best performance)
+- **Purpose**: Normalize proteomics data to remove technical variability and ensure sample comparability
+- **Mode-Dependent Behavior**:
+
+  **Single-Batch Mode**:
+  - **Primary Method**: **Median Normalization** (standard intra-batch step)
+  - **Rationale**: Median normalization ensures samples are comparable within a single batch before performing statistical tests. This is a standard preprocessing step for proteomics data.
+  - **Note**: Bridge normalization and ComBat are **not applicable** in single-batch mode (they require multiple batches)
+  - **Expected Performance**: Typically achieves ~9.7% SD reduction
+
+  **Multi-Batch Mode**:
+  - **Primary Method**: **Bridge Normalization** (required for cross-batch harmonization)
+    - Uses bridge samples from both batches to calculate combined reference medians
+    - Harmonizes protein expression levels across batches
+    - Required for combining data from multiple batches
+  - **Comparison Methods** (generated for evaluation):
+    - **ComBat**: Batch correction using empirical Bayes framework
+    - **Median**: Standard intra-batch normalization (for comparison)
+  - **Expected Performance**: Bridge normalization achieves cross-batch harmonization while preserving biological variation
+
+- **Evaluation**: SD, MAD, and IQR reduction (CV not meaningful for log-transformed NPX data)
 - **Output**:
-  - `06_npx_matrix_normalized_median.rds`: Median-normalized matrix (recommended)
-  - `06_npx_matrix_normalized.rds`: Bridge-normalized matrix
-  - `06_normalization_evaluations.tsv`: CV statistics before/after
+  - `06_npx_matrix_normalized.rds`: Normalized NPX matrix (primary method)
+  - `06_normalization_evaluations.tsv`: Evaluation statistics (SD, MAD, IQR before/after)
+  - `06_normalization_effect_*.pdf`: Visualization plots
+  - Multi-batch mode also saves: `06_npx_matrix_normalized_combat.rds`, `06_npx_matrix_normalized_median.rds` (for comparison)
 
 #### 07_bridge_normalization.R (Optional - Multi-Batch Only)
 - **Purpose**: Enhanced bridge sample normalization for multi-batch integration
@@ -583,10 +598,18 @@ The pipeline is configured via a YAML file. See `config/config.yaml.template` fo
 
 ### Required Files
 
-1. **NPX Matrix** (Parquet format)
-   - Format: Samples × Proteins matrix
-   - Should contain biological samples only (control/blank samples will be filtered during initial QC)
+1. **NPX Matrix** (Parquet, RDS, or TSV format)
+   - **Supported formats**:
+     - **Parquet** (`.parquet`): Recommended for large datasets
+     - **RDS** (`.rds`): R matrix or data.frame format
+     - **TSV/CSV** (`.tsv`, `.txt`, `.csv`): Tab or comma-separated values
+   - **Format**: Samples × Proteins matrix (wide format)
+   - **Structure**:
+     - First column: `SampleID` (or `SAMPLE_ID`, `sample_id`, `ID`, or first column will be used)
+     - Remaining columns: Protein names (one column per protein)
+   - Should contain biological samples only (control/blank samples should be filtered before input)
    - File: Specified in `config.yaml` → `data.npx_matrix_file`
+   - **Note**: The pipeline automatically detects file format from extension and converts to internal matrix format
 
 2. **Metadata File** (TSV format)
    - Sample metadata with SAMPLE_ID, FINNGENID, PlateID, etc.
