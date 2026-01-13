@@ -1,12 +1,14 @@
 # FinnGen 3 Olink Proteomics Analysis Pipeline
 
-**Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
-
 **Platform**: Olink Explore HT (5K)
 
 **Version**: 1.0.0
 
 **Release Date**: January 2026
+
+**Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
+
+**Reviewer**: Mitja Kurki, PhD (mkurki@broadinstitute.org)
 
 ## Overview
 
