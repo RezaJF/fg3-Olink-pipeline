@@ -25,6 +25,7 @@ RUN apt-get update && apt-get install -y \
     git \
     wget \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Google Cloud SDK for GCS access (required for pQTL steps)
@@ -34,11 +35,14 @@ RUN echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.
     rm -rf /var/lib/apt/lists/*
 
 # Install PLINK (required for pQTL steps)
-RUN wget https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20230116.zip && \
-    unzip plink_linux_x86_64_20230116.zip && \
+# Use explicit error handling and verify each step
+RUN set -eux && \
+    wget --no-verbose --show-progress https://s3.amazonaws.com/plink1-assets/plink_linux_x86_64_20230116.zip && \
+    unzip -q plink_linux_x86_64_20230116.zip && \
     mv plink /usr/local/bin/ && \
     chmod +x /usr/local/bin/plink && \
-    rm plink_linux_x86_64_20230116.zip plink.log
+    rm -f plink_linux_x86_64_20230116.zip plink.log && \
+    plink --version
 
 # Set working directory
 WORKDIR /pipeline

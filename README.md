@@ -65,7 +65,7 @@ flowchart TD
     BridgeNorm -->|Enabled| BridgeNormRun[Enhanced Bridge<br/>Quantile normalization]
     BridgeNorm -->|Disabled| Covariate
 
-    BridgeNormRun --> Covariate[08_covariate_adjustment.R<br/>Adjust for age/sex/BMI<br/>PC1-10 adjustment]
+    BridgeNormRun --> Covariate[08_covariate_adjustment.R<br/>Adjust for age/sex/BMI/smoking<br/>Proteomic PCs excluded]
 
     Covariate --> Phenotype[09_prepare_phenotypes.R<br/>Combine QC results<br/>Create phenotype matrix]
 
@@ -396,8 +396,9 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - `07_npx_matrix_bridge_quantile.rds`: Quantile normalized
 
 #### 08_covariate_adjustment.R
-- **Purpose**: Adjust for biological and technical covariates
-- **Covariates**: Age, sex, BMI, smoking status, proteomic PCs (PC1-10)
+- **Purpose**: Adjust for biological covariates (age, sex, BMI, smoking)
+- **Covariates**: Age, sex, BMI, smoking status
+- **Note**: Proteomic PCs are **NOT** adjusted for to preserve biological signal. They are evaluated and visualized but not removed from the data.
 - **Output**:
   - `08_npx_matrix_adjusted.rds`: Covariate-adjusted matrix
   - `08_covariate_effects_summary.tsv`: Effect sizes

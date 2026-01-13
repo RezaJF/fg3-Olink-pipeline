@@ -21,7 +21,28 @@ suppressPackageStartupMessages({
 })
 
 # Source helper functions for multicollinearity-aware analysis
-source("file.path(script_dir, "08_helper_multicollinearity_adjustment.R")")
+# Get script directory safely (handles both direct execution and sourcing)
+script_dir <- tryCatch({
+  env_script <- Sys.getenv("SCRIPT_NAME", "")
+  if (env_script != "" && file.exists(env_script)) {
+    dirname(normalizePath(env_script))
+  } else {
+    # Try to get from commandArgs (when run as Rscript)
+    args <- commandArgs(trailingOnly = FALSE)
+    file_arg <- grep("^--file=", args, value = TRUE)
+    if (length(file_arg) > 0) {
+      script_path <- sub("^--file=", "", file_arg)
+      if (file.exists(script_path)) {
+        dirname(normalizePath(script_path))
+      } else {
+        getwd()
+      }
+    } else {
+      getwd()
+    }
+  }
+}, error = function(e) getwd())
+source(file.path(script_dir, "08_helper_multicollinearity_adjustment.R"))
 
 # Suppress "no visible binding" warnings for data.table operations
 utils::globalVariables(
@@ -64,8 +85,10 @@ load_proteomic_pcs <- function(pca_result_file, n_pcs = 10) {
 }
 
 # Function to load and prepare covariates
-prepare_covariates <- function(covariate_file, sample_ids, metadata, proteomic_pcs) {
-  log_info("Preparing covariates for adjustment (with proteomic PCs)")
+# NOTE: Proteomic PCs are NOT included in adjustment to preserve biological signal
+# They are loaded separately for evaluation/visualization purposes only
+prepare_covariates <- function(covariate_file, sample_ids, metadata) {
+  log_info("Preparing covariates for adjustment (age, sex, BMI, smoking - proteomic PCs excluded to preserve biological signal)")
 
   # Load covariates
   covariates <- fread(cmd = paste("zcat", covariate_file))
@@ -103,7 +126,7 @@ prepare_covariates <- function(covariate_file, sample_ids, metadata, proteomic_p
   # Map samples to FINNGENIDs
   sample_mapping <- metadata[SAMPLE_ID %in% sample_ids, .(SAMPLE_ID, FINNGENID)]
 
-  # Merge covariates with sample IDs (WITHOUT genomic PCs - we'll use proteomic PCs instead)
+  # Merge covariates with sample IDs (age, sex, BMI, smoking only - proteomic PCs excluded)
   covariate_data <- merge(
     sample_mapping,
     covariates[, .(
@@ -132,29 +155,18 @@ prepare_covariates <- function(covariate_file, sample_ids, metadata, proteomic_p
   # Align with sample order
   covariate_data <- covariate_data[match(sample_ids, covariate_data$SAMPLE_ID)]
 
-  # Merge with proteomic PCs (align by SAMPLE_ID)
-  pcs_aligned <- merge(data.table(SAMPLE_ID = sample_ids), proteomic_pcs,
-                       by.x = "SAMPLE_ID", by.y = "SampleID", all.x = TRUE)
-  # Reorder to exactly match sample_ids
-  pcs_aligned <- pcs_aligned[match(sample_ids, pcs_aligned$SAMPLE_ID)]
-
-  # Add proteomic PCs to covariate_data
-  pc_cols <- grep("^pPC[0-9]+$", names(pcs_aligned), value = TRUE)
-  for (col in pc_cols) {
-    covariate_data[[col]] <- pcs_aligned[[col]]
+  # Check completeness (age, sex, BMI, smoking - proteomic PCs NOT included)
+  check_cols <- c("age", "sex")
+  if ("bmi" %in% names(covariate_data) && !all(is.na(covariate_data$bmi))) {
+    check_cols <- c(check_cols, "bmi")
   }
-
-  # Check completeness (with proteomic PCs)
-  n_check_pcs <- min(5, length(pc_cols))
-  check_cols <- if (n_check_pcs > 0) {
-    c("age", "sex", pc_cols[seq_len(n_check_pcs)])
-  } else {
-    c("age", "sex")
+  if ("smoking" %in% names(covariate_data) && !all(is.na(covariate_data$smoking))) {
+    check_cols <- c(check_cols, "smoking")
   }
   complete_samples <- complete.cases(covariate_data[, ..check_cols])
 
   log_info("Samples with complete covariates: {sum(complete_samples)} out of {length(complete_samples)}")
-  log_info("Using {length(pc_cols)} proteomic PCs for adjustment")
+  log_info("Adjusting for: age, sex, BMI, smoking (proteomic PCs excluded to preserve biological signal)")
 
   return(list(
     covariates = covariate_data,
@@ -164,8 +176,9 @@ prepare_covariates <- function(covariate_file, sample_ids, metadata, proteomic_p
 }
 
 # Function to adjust for covariates using linear regression
-adjust_covariates_lm <- function(npx_matrix, covariates, adjust_for = c("age", "sex", "pPC1-10")) {
-  log_info("Adjusting for covariates using linear regression")
+# NOTE: Proteomic PCs are NOT adjusted for to preserve biological signal
+adjust_covariates_lm <- function(npx_matrix, covariates, adjust_for = c("age", "sex", "bmi", "smoking")) {
+  log_info("Adjusting for covariates using linear regression (age, sex, BMI, smoking - proteomic PCs excluded)")
 
   # Prepare covariate matrix
   if("age" %in% adjust_for) {
@@ -184,20 +197,8 @@ adjust_covariates_lm <- function(npx_matrix, covariates, adjust_for = c("age", "
     cov_matrix <- cbind(cov_matrix, smoking = covariates$smoking)
   }
 
-  # Use proteomic PCs (pPC) instead of genomic PCs
-  if("pPC1-10" %in% adjust_for) {
-    pc_cols <- paste0("pPC", 1:10)
-    pc_cols <- pc_cols[pc_cols %in% names(covariates)]
-    if (length(pc_cols) > 0) {
-    cov_matrix <- cbind(cov_matrix, as.matrix(covariates[, ..pc_cols]))
-    }
-  } else if("pPC1-5" %in% adjust_for) {
-    pc_cols <- paste0("pPC", 1:5)
-    pc_cols <- pc_cols[pc_cols %in% names(covariates)]
-    if (length(pc_cols) > 0) {
-    cov_matrix <- cbind(cov_matrix, as.matrix(covariates[, ..pc_cols]))
-    }
-  }
+  # NOTE: Proteomic PCs are NOT included in adjustment
+  # They may contain biological information and should not be removed
 
   # Initialize adjusted matrix
   adjusted_matrix <- npx_matrix
@@ -428,8 +429,8 @@ create_enhanced_covariate_plots <- function(npx_matrix, adjusted_matrix, effects
                       labels = c("Before", "After")) +
     scale_color_manual(values = c("before" = col_before, "after" = col_after),
                        labels = c("Before", "After")) +
-    labs(title = "Proteomic PC1 Effect: Before vs After Adjustment",
-         subtitle = sprintf("Mean |r| reduction: %.3f -> %.3f (%s%% decrease)",
+    labs(title = "Proteomic PC1 Effect: Before vs After Adjustment (NOT adjusted for)",
+         subtitle = sprintf("Mean |r|: %.3f -> %.3f (%s%% change) | Note: pPC1 NOT removed to preserve biological signal",
                            mean_before_ppc1, mean_after_ppc1, reduction_ppc1),
          x = expression("Correlation with pPC1 ("*italic(r)*")"),
          y = "Density",
@@ -462,8 +463,8 @@ create_enhanced_covariate_plots <- function(npx_matrix, adjusted_matrix, effects
                         labels = c("Before", "After")) +
       scale_color_manual(values = c("before" = col_before, "after" = col_after),
                          labels = c("Before", "After")) +
-      labs(title = "Proteomic PC2 Effect: Before vs After Adjustment",
-           subtitle = sprintf("Mean |r| reduction: %.3f -> %.3f (%s%% decrease)",
+      labs(title = "Proteomic PC2 Effect: Before vs After Adjustment (NOT adjusted for)",
+           subtitle = sprintf("Mean |r|: %.3f -> %.3f (%s%% change) | Note: pPC2 NOT removed to preserve biological signal",
                              mean_before_ppc2, mean_after_ppc2, reduction_ppc2),
            x = expression("Correlation with pPC2 ("*italic(r)*")"),
            y = "Density",
@@ -550,8 +551,8 @@ create_enhanced_covariate_plots <- function(npx_matrix, adjusted_matrix, effects
     geom_text_repel(data = ppc1_scatter_data[label != ""], aes(label = label),
                     size = 2.5, max.overlaps = 15) +
     scale_color_gradient(low = col_after, high = col_before) +
-    labs(title = "Proteomic PC1 Effect Reduction Per Protein",
-         subtitle = sprintf("All %s proteins; diagonal = no change", nrow(ppc1_scatter_data)),
+    labs(title = "Proteomic PC1 Effect: Before vs After (NOT adjusted for)",
+         subtitle = sprintf("All %s proteins; diagonal = no change | Note: pPC1 NOT removed to preserve biological signal", nrow(ppc1_scatter_data)),
          x = expression("|"*italic(r)*"| Before Adjustment"),
          y = expression("|"*italic(r)*"| After Adjustment"),
          color = "Reduction") +
@@ -767,8 +768,8 @@ create_enhanced_covariate_plots <- function(npx_matrix, adjusted_matrix, effects
       scale_fill_manual(values = c("Before" = col_before, "After" = col_after)) +
       scale_color_manual(values = c("Before" = col_before, "After" = col_after)) +
       facet_wrap(~ PC, ncol = 5, scales = "free_y") +
-      labs(title = "All Proteomic PCs (pPC1-10): Effect Before vs After Adjustment",
-           subtitle = "Compression toward zero validates technical variation removal",
+      labs(title = "All Proteomic PCs (pPC1-10): Effect Before vs After (NOT adjusted for)",
+           subtitle = "Note: Proteomic PCs NOT removed to preserve biological signal | Changes reflect indirect effects of age/sex/BMI adjustment",
            x = "Correlation with Proteomic PC", y = "Density",
            fill = "Stage", color = "Stage") +
       theme_bw() +
@@ -967,7 +968,7 @@ main <- function() {
   npx_file_candidates <- c(
     ,
     ,
-    
+
   )
 
   npx_file <- NULL
@@ -989,20 +990,30 @@ main <- function() {
   # Get sample IDs
   sample_ids <- rownames(npx_matrix)
 
-  # Load proteomic PCs from step 01
-  log_info("Loading proteomic PCs from PCA analysis")
+  # Load proteomic PCs from step 01 (for evaluation/visualization only, NOT for adjustment)
+  log_info("Loading proteomic PCs from PCA analysis (for evaluation/visualization only - NOT used in adjustment)")
   proteomic_pcs <- load_proteomic_pcs(
     ,
     n_pcs = 10
   )
 
-  # Prepare covariates (including proteomic PCs)
+  # Prepare covariates (age, sex, BMI, smoking - proteomic PCs excluded)
   covariate_result <- prepare_covariates(
     config$covariates$covariate_with_smoking,
     sample_ids,
-    metadata,
-    proteomic_pcs
+    metadata
   )
+
+  # Merge proteomic PCs into covariates for evaluation/visualization purposes only
+  # They are NOT used in the adjustment step
+  pcs_aligned <- merge(data.table(SAMPLE_ID = sample_ids), proteomic_pcs,
+                       by.x = "SAMPLE_ID", by.y = "SampleID", all.x = TRUE)
+  pcs_aligned <- pcs_aligned[match(sample_ids, pcs_aligned$SAMPLE_ID)]
+  pc_cols <- grep("^pPC[0-9]+$", names(pcs_aligned), value = TRUE)
+  for (col in pc_cols) {
+    covariate_result$covariates[[col]] <- pcs_aligned[[col]]
+  }
+  log_info("Proteomic PCs merged for evaluation/visualization (NOT used in adjustment)")
 
   # Create filtered datasets for age-specific analyses (exclude age <= 20)
   young_sample_ids <- covariate_result$young_sample_ids
@@ -1023,11 +1034,11 @@ main <- function() {
   # Evaluate covariate effects before adjustment (ALL proteins)
   effects_before <- evaluate_covariate_effects(npx_matrix, covariate_result$covariates, use_all_proteins = TRUE)
 
-  # Adjust for covariates (using proteomic PCs)
+  # Adjust for covariates (age, sex, BMI, smoking - proteomic PCs excluded)
   adjusted_matrix <- adjust_covariates_lm(
     npx_matrix,
     covariate_result$covariates,
-    adjust_for = c("age", "sex", "bmi", "smoking", "pPC1-10")
+    adjust_for = c("age", "sex", "bmi", "smoking")
   )
 
   # Create age-filtered adjusted matrix (exclude samples with age <= 20)
