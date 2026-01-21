@@ -13,7 +13,6 @@
 #
 # Author: Reza Jabal, PhD (rjabal@broadinstitute.org)
 # Date: December 2025 (Updated: January 2026 - Quality-based sample selection implementation)
-# Date: December 2025 (Updated: January 2026 - Quality-based sample selection implementation)
 # ==============================================================================
 
 suppressPackageStartupMessages({

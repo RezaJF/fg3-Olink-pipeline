@@ -4,7 +4,7 @@
 # ==============================================================================
 #
 # Purpose:
-#   Unit test for governance components validation. Tests sex outlier detection
+#   Unit test for provenance components validation. Tests sex outlier detection
 #   (Step 04) and pQTL outlier detection (Step 05b) to ensure correct
 #   implementation and threshold application. Optional step that can be disabled
 #   in production runs.
