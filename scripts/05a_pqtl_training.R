@@ -41,6 +41,28 @@ script_dir <- tryCatch(
 )
 source(file.path(script_dir, "path_utils.R"))
 
+# Get config path from environment (required when sourced by pipeline runner)
+# This matches the pattern used in other scripts (04_sex_outliers.R, 05b_pqtl_outliers.R)
+config_file <- Sys.getenv("PIPELINE_CONFIG", "")
+if (config_file == "" || !file.exists(config_file)) {
+  # Try to get from global environment if set by pipeline runner
+  if (exists("PIPELINE_CONFIG_OBJ", envir = .GlobalEnv)) {
+    config <- get("PIPELINE_CONFIG_OBJ", envir = .GlobalEnv)
+  } else {
+    # Config not available - will be loaded in run_pqtl_training() function if needed
+    config <- NULL
+  }
+} else {
+  config <- yaml::read_yaml(config_file)
+}
+
+# Get batch context
+if (!is.null(config)) {
+    batch_id <- Sys.getenv("PIPELINE_BATCH_ID", config$batch$default_batch_id %||% "batch_01")
+} else {
+    batch_id <- Sys.getenv("PIPELINE_BATCH_ID", "batch_01")
+}
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -59,7 +81,7 @@ read_gs_file <- function(gs_path) {
     return(dt)
 }
 
-# Helper to extract top variant (reused from 07b)
+# Helper to extract top variant (reused from 05b)
 get_top_variant <- function(f) {
     tryCatch(
         {
@@ -193,15 +215,33 @@ check_and_flip_genotype <- function(g_vec, rsid, col_name) {
 # ============================================================================
 # Main Function
 # ============================================================================
-run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
-    step_num <- "07"
-    step_suffix <- "07a"
+run_pqtl_training <- function(config = NULL, batch_id = NULL, verbose = FALSE) {
+    # Load config if not provided
+    if (is.null(config)) {
+        config_file <- Sys.getenv("PIPELINE_CONFIG", "")
+        if (config_file != "" && file.exists(config_file)) {
+            config <- yaml::read_yaml(config_file)
+        } else if (exists("PIPELINE_CONFIG_OBJ", envir = .GlobalEnv)) {
+            config <- get("PIPELINE_CONFIG_OBJ", envir = .GlobalEnv)
+        } else {
+            stop("Config not provided and could not be loaded from environment")
+        }
+    }
+    
+    # Get batch_id if not provided
+    if (is.null(batch_id) || batch_id == "") {
+        batch_id <- Sys.getenv("PIPELINE_BATCH_ID", config$batch$default_batch_id %||% "batch_01")
+    }
+    
+    step_num <- "05a"
+    step_suffix <- "05a"
     step_name <- "pqtl_training"
 
     # Set up logging
     log_dir <- file.path(config$output$base_dir, config$output$logs_dir %||% "logs", batch_id)
     dir.create(log_dir, recursive = TRUE, showWarnings = FALSE)
     log_file <- file.path(log_dir, paste0(step_num, "_", step_suffix, "_", step_name, ".log"))
+    ensure_output_dir(log_file)
     log_appender(appender_file(log_file))
 
     log_info("=" |> rep(60) |> paste(collapse = ""))
@@ -218,6 +258,8 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
             # ====================================================================
             training_config <- config$pqtl_training
             if (is.null(training_config) || !isTRUE(training_config$enabled)) {
+                # Set environment variable to indicate step was skipped
+                Sys.setenv(PIPELINE_STEP_SKIPPED = "TRUE")
                 log_info("pQTL training is disabled in config. Skipping.")
                 return(invisible(NULL))
             }
@@ -226,6 +268,12 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
 
             training_seeds <- training_config$training_seeds %||% c(12345, 23456, 34567, 45678, 56789)
             error_configs <- training_config$error_configs
+            if (is.null(error_configs) || length(error_configs) == 0) {
+                log_warn("No error_configs provided. Using default error configuration.")
+                error_configs <- list(
+                    list(genotype_mismatch = 10, sex_mismatch = 5)
+                )
+            }
             cohort_size <- training_config$cohort_size %||% 500
             excluded_cohorts <- training_config$excluded_cohorts %||% c("Chromosomal_Abnormalities", "F64", "Kids")
 
@@ -312,7 +360,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
             npx_matrix <- npx_matrix[valid_samples$SampleID, , drop = FALSE]
             log_info("Analysis Set: {nrow(valid_samples)} valid samples")
 
-            # Apply IRN to match production pipeline (07b)
+            # Apply IRN to match production pipeline (05b)
             npx_matrix <- inverse_rank_normalize(npx_matrix)
 
             # Load step 04 Sex Predictions using the helper function logic or direct path
@@ -359,7 +407,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
             log_info("")
             log_info("--- Global pQTL Prep ---")
 
-            collated_path <- file.path(output_dir, "07a_finemap_collated_global.tsv")
+            collated_path <- file.path(output_dir, "05a_finemap_collated_global.tsv")
             top_variants_global <- NULL
 
             if (file.exists(collated_path)) {
@@ -421,7 +469,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                 log_info("Using cached global genotypes: {cached_raw}")
                 dt_geno_global <- fread(cached_raw)
             } else {
-                # Reuse logic from 07b sparse extraction...
+                # Reuse logic from 05b sparse extraction...
                 # Simplified here assuming the robust extraction works
                 log_info("Running global extraction (sparse BED + PLINK export)...")
 
@@ -748,7 +796,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                     }
 
                     # Pivot for LASSO (using std_res as primary feature, or both?)
-                    # 07a original used Residuals for LASSO. Let's stick to that.
+                    # 05a original used Residuals for LASSO. Let's stick to that.
                     # Ensure SampleID and rsid are character (not factor) for dcast
                     long_feat[, SampleID := as.character(SampleID)]
                     long_feat[, rsid := as.character(rsid)]
@@ -1018,7 +1066,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                         ) +
                         theme_bw()
 
-                    ggsave(file.path(plot_dir, paste0("07a_diagnostic_ROC_cohort_", cohort_idx, ".pdf")), p_roc, width = 6, height = 5)
+                    ggsave(file.path(plot_dir, paste0("05a_diagnostic_ROC_cohort_", cohort_idx, ".pdf")), p_roc, width = 6, height = 5)
 
                     # PR Plot
                     p_pr <- ggplot(pr_data, aes(x = Recall, y = Precision, color = Metric)) +
@@ -1030,7 +1078,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                         scale_color_manual(values = c("#E7B800", "#FC4E07")) +
                         theme_bw()
 
-                    ggsave(file.path(plot_dir, paste0("07a_diagnostic_PR_cohort_", cohort_idx, ".pdf")), p_pr, width = 6, height = 5)
+                    ggsave(file.path(plot_dir, paste0("05a_diagnostic_PR_cohort_", cohort_idx, ".pdf")), p_pr, width = 6, height = 5)
 
 
                     # B. Faceted Sex Cross-reference Plots
@@ -1058,8 +1106,8 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                                     # "gradient colour showing outliers in darker shades (the colour gradient is directed toward the female predicted probabilities)"
                                     # This is complex to exact match without original code but let's approximate:
                                     # Outliers (is_error) colored by predicted_prob?
-                                    # Let's stick to the 07b logic closer if possible.
-                                    # From 07b backup: geom_point(aes(fill = point_color ...))
+                                    # Let's stick to the 05b logic closer if possible.
+                                    # From 05b backup: geom_point(aes(fill = point_color ...))
                                     # We'll define point_color manually for full control
 
                                     facet_wrap(~genetic_sex, nrow = 2, scales = "free_x") +
@@ -1072,7 +1120,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                                     ) +
                                     theme_bw()
 
-                                # Re-implementing specific color logic matching 07b
+                                # Re-implementing specific color logic matching 05b
                                 # Green=TP, Red=FN, Orange=FP, Blue=TN was my previous simple one.
                                 # User wants: "showing all individuals ... with gradient colour showing outliers in darker shades"
                                 # Let's use specific colors for errors vs clean
@@ -1109,7 +1157,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                                 labs(title = paste0("MeanAbsZ vs Sex Prob - Cohort ", cohort_idx), y = "MeanAbsZ") +
                                 theme_bw()
 
-                            ggsave(file.path(plot_dir, paste0("07a_diagnostic_MeanAbsZ_cohort_", cohort_idx, ".pdf")), p_z, width = 8, height = 8)
+                            ggsave(file.path(plot_dir, paste0("05a_diagnostic_MeanAbsZ_cohort_", cohort_idx, ".pdf")), p_z, width = 8, height = 8)
 
                             # Plot MAR
                             p_mar <- ggplot(plot_data, aes(x = predicted_prob, y = mar)) +
@@ -1125,7 +1173,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                                 labs(title = paste0("MAR vs Sex Prob - Cohort ", cohort_idx), y = "MAR") +
                                 theme_bw()
 
-                            ggsave(file.path(plot_dir, paste0("07a_diagnostic_MAR_cohort_", cohort_idx, ".pdf")), p_mar, width = 8, height = 8)
+                            ggsave(file.path(plot_dir, paste0("05a_diagnostic_MAR_cohort_", cohort_idx, ".pdf")), p_mar, width = 8, height = 8)
                         }
                     }
 
@@ -1159,7 +1207,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
             log_info("Recommended Thresholds: MeanAbsZ > Mean + {round(mean_k_z, 2)}*SD, MAR > Median + {round(mean_k_mar, 2)}*MAD")
 
             # Write Outputs
-            fwrite(consensus_vars, file.path(output_dir, "07a_consensus_pqtls.tsv"), sep = "\t")
+            fwrite(consensus_vars, file.path(output_dir, "05a_consensus_pqtls.tsv"), sep = "\t")
 
             # Write config YAML snippet
             out_yaml <- list(
@@ -1169,7 +1217,7 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
                     mar = list(k_mad = mean_k_mar)
                 )
             )
-            write_yaml(out_yaml, file.path(output_dir, "07a_consensus_config.yaml"))
+            write_yaml(out_yaml, file.path(output_dir, "05a_consensus_config.yaml"))
 
             elapsed <- difftime(Sys.time(), start_time, units = "mins")
             log_info("Training completed in {round(elapsed, 2)} minutes.")
@@ -1181,25 +1229,9 @@ run_pqtl_training <- function(config, batch_id = NULL, verbose = FALSE) {
     )
 }
 
-if (!interactive()) {
-    cli_args <- commandArgs(trailingOnly = TRUE)
-    config_path <- NULL
-    batch_id <- NULL
-
-    # Simple arg parsing
-    for (i in seq_along(cli_args)) {
-        if (cli_args[i] == "--config") config_path <- cli_args[i + 1]
-        if (cli_args[i] == "--batch") batch_id <- cli_args[i + 1]
-    }
-
-    # If run from pipeline runner, config/batch might be available in env/global vars
-    if (is.null(config_path) && exists("PIPELINE_CONFIG_OBJ")) {
-        config <- get("PIPELINE_CONFIG_OBJ")
-        batch_id <- Sys.getenv("PIPELINE_BATCH_ID")
-        run_pqtl_training(config, batch_id)
-    } else {
-        if (is.null(config_path)) stop("Config path required")
-        config <- read_yaml(config_path)
-        run_pqtl_training(config, batch_id)
-    }
+# Auto-execute when sourced by pipeline runner or run directly
+# Only execute if config is available (when sourced, config should be loaded above)
+if (!is.null(config)) {
+    # Execute the training function (it will check if training is enabled internally)
+    run_pqtl_training(config, batch_id)
 }

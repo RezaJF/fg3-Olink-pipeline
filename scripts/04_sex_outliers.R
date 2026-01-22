@@ -1137,24 +1137,33 @@ create_prediction_distribution_panels <- function(df_pred, title, file_out,
 
   # Outlier flags for plotting on the probability strip
   # ============================================================================
-  # UPDATED LOGIC (per user request):
-  # - mismatch: Deviates from Youden's J threshold (FULL RED - more stringent)
-  # - sex_outlier: Deviates from 0.5 but not from Youden's J (PALE RED - mild)
+  # CORRECT LOGIC (per OUTPUT_VALIDATION_REPORT.md):
+  # - strict_mismatch: predicted_sex != genetic_sex (FULL RED - actual label mismatch)
+  #   where predicted_sex = "female" if predicted_prob >= 0.5, else "male"
+  # - threshold_outlier: (mismatch == TRUE | sex_outlier == TRUE) AND strict_mismatch == FALSE
+  #   (PALE RED - threshold-based outliers that are NOT strict mismatches)
   # ============================================================================
-  dt[, is_mismatch := FALSE]
-  dt[, is_sex_outlier := FALSE]
-  # Mismatch: crosses Youden's J threshold
-  dt[genetic_sex == "male" & predicted_prob >= youden_thresh, is_mismatch := TRUE]
-  dt[genetic_sex == "female" & predicted_prob < youden_thresh, is_mismatch := TRUE]
-  # Sex outlier: crosses 0.5 but not Youden's J
-  dt[genetic_sex == "male" & predicted_prob >= 0.5 & predicted_prob < youden_thresh, is_sex_outlier := TRUE]
-  # Note: For females, when youden_thresh > 0.5, there's no "between" range
-  # Females with prob < youden_thresh are already mismatches
+  
+  # Calculate predicted_sex based on 0.5 threshold
+  dt[, predicted_sex := ifelse(predicted_prob >= 0.5, "female", "male")]
+  
+  # STRICT MISMATCH: predicted_sex != genetic_sex (actual label mismatch)
+  dt[, strict_mismatch := (!is.na(genetic_sex) & !is.na(predicted_sex) & genetic_sex != predicted_sex)]
+  
+  # Threshold-based flags (for reference):
+  # mismatch: crosses Youden's J threshold
+  dt[, mismatch := (genetic_sex == "male" & predicted_prob >= youden_thresh) |
+                    (genetic_sex == "female" & predicted_prob < youden_thresh)]
+  # sex_outlier: crosses 0.5 but not Youden's J (for males only, as females with prob < youden are mismatches)
+  dt[, sex_outlier := (genetic_sex == "male" & predicted_prob >= 0.5 & predicted_prob < youden_thresh)]
+  
+  # THRESHOLD OUTLIER: (mismatch == TRUE | sex_outlier == TRUE) AND strict_mismatch == FALSE
+  dt[, threshold_outlier := ((mismatch == TRUE | sex_outlier == TRUE) & strict_mismatch == FALSE)]
 
-  # Classification: normal, outlier (pale red, between 0.5 and Youden), mismatch (red, beyond Youden)
+  # Classification: normal, outlier (pale red, threshold-based but not strict mismatch), mismatch (red, strict mismatch)
   dt[, outlier_class := "normal"]
-  dt[is_sex_outlier == TRUE, outlier_class := "outlier"]
-  dt[is_mismatch == TRUE, outlier_class := "mismatch"]
+  dt[threshold_outlier == TRUE, outlier_class := "outlier"]
+  dt[strict_mismatch == TRUE, outlier_class := "mismatch"]
 
   # Left: density + histogram faceted by sex
   p_left <- ggplot(dt, aes(x = predicted_prob, fill = genetic_sex)) +
@@ -1182,7 +1191,7 @@ create_prediction_distribution_panels <- function(df_pred, title, file_out,
     geom_point(data = dt[outlier_class == "outlier"],
                shape = 21, size = 2.0, stroke = 0.3,
                fill = "#D7301F", alpha = 0.35, color = "black", show.legend = FALSE) +
-    # mismatches (beyond Youden J) - full red
+    # strict mismatches (predicted_sex != genetic_sex) - full red
     geom_point(data = dt[outlier_class == "mismatch"],
                shape = 21, size = 2.4, stroke = 0.5,
                fill = "#D7301F", color = "black", show.legend = FALSE) +
@@ -1200,8 +1209,8 @@ create_prediction_distribution_panels <- function(df_pred, title, file_out,
     annotate("text", x = 0.07, y = 2.27, label = "Outliers", hjust = 0, size = 2.4)
 
   if (annotate_ids) {
-    # Label mismatches (most severe outliers)
-    lab_dt <- dt[is_mismatch == TRUE & !is.na(FINNGENID)]
+    # Label strict mismatches (most severe outliers)
+    lab_dt <- dt[strict_mismatch == TRUE & !is.na(FINNGENID)]
     if (nrow(lab_dt) > max_labels) {
       # choose far-from-threshold labels for readability
       lab_m <- lab_dt[genetic_sex == "male"][order(-predicted_prob)][1:ceiling(max_labels/2)]

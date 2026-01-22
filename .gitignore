@@ -68,6 +68,9 @@ DEPLOYMENT*.md
 ROOT_CAUSE_ANALYSIS_AUC_NA.md
 OUTPUT_VALIDATION_REPORT.md
 NORMALIZATION_*.md
+NORMALIZATION_REFACTORING.md
+NORMALIZATION_REFACTORING_SUMMARY.md
+NORMALIZATION_BUG_FIX.md
 REFACTORING_SUMMARY.md
 REMEDY_PLAN.md
 MATRIX_FLOW_ANALYSIS.md
@@ -77,10 +80,17 @@ REFACTORING_PROPOSAL_ANALYSIS.md
 
 # Test and development scripts
 run_pipeline_from_step*.sh
+run_pipeline_from_stepXX_to_stepYY.sh
 run_pipeline_end_to_end.sh
 run_test_*.sh
+run_test_to_normalization.sh
 *_test.sh
 
 # OS files
 Thumbs.db
 .DS_Store
+
+# Node.js (for semantic-release)
+node_modules/
+package-lock.json
+.npm/

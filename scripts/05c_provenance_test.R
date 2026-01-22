@@ -95,22 +95,30 @@ test_enabled <- tryCatch(
 )
 
 if (!test_enabled) {
+    # Set environment variable to indicate step was skipped
+    Sys.setenv(PIPELINE_STEP_SKIPPED = "TRUE")
     log_info("Test case mode is disabled. Set test_case.enabled: true in config to enable.")
-    quit(status = 0)
+    # When sourced by pipeline runner, don't quit - just return silently
+    # When run directly, quit cleanly
+    if (!interactive()) {
+        quit(status = 0)
+    }
+    # When sourced interactively, just return (don't execute main())
+    # This prevents execution when sourced by pipeline runner if test is disabled
 }
 
 # Get batch context
 batch_id <- Sys.getenv("PIPELINE_BATCH_ID", config$batch$default_batch_id %||% "batch_01")
-step_num <- "07c"
+step_num <- "05c"
 
 # Set up logging - write to logs directory (primary)
-# Override log filename to use 07_07c format (matching other 07* scripts)
+# Override log filename to use 05_05c format (matching other 05* scripts)
 base_dir <- config$output$base_dir %||% Sys.getenv("PIPELINE_OUTPUT_DIR", "output")
 log_dir <- file.path(base_dir, config$output$logs_dir %||% "logs")
 if (tryCatch(isTRUE(config$parameters$normalization$multi_batch_mode), error = function(e) FALSE) && !is.null(batch_id)) {
     log_dir <- file.path(log_dir, batch_id)
 }
-log_path <- file.path(log_dir, "07_07c_governance_test.log")
+log_path <- file.path(log_dir, "05_05c_governance_test.log")
 ensure_output_dir(log_path)
 log_appender(appender_file(log_path))
 
@@ -1353,7 +1361,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
         log_info("  Sex outliers (0.5 threshold): {sum(preds_dt$sex_outlier, na.rm=TRUE)}")
 
         # Save sex predictions
-        sex_pred_path <- file.path(test_output_dir, "07_07c_sex_predictions_test_case.tsv")
+        sex_pred_path <- file.path(test_output_dir, "05_05c_sex_predictions_test_case.tsv")
         ensure_output_dir(sex_pred_path)
         fwrite(preds_dt, sex_pred_path, sep = "\t")
         log_info("Saved sex predictions to: {sex_pred_path}")
@@ -1365,7 +1373,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
 
         # Generate sex prediction distribution plot (using same function as 05_sex_outliers.R)
         log_info("Generating sex prediction distribution plot...")
-        sex_plot_path <- file.path(test_output_dir, "07_07c_sex_predict_distribution_test_case_fg3_batch_02.pdf")
+        sex_plot_path <- file.path(test_output_dir, "05_05c_sex_predict_distribution_test_case_fg3_batch_02.pdf")
         ensure_output_dir(sex_plot_path)
 
         create_prediction_distribution_panels(
@@ -1395,12 +1403,12 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
             top_n <- tryCatch(pqtl_config$top_n_pQTLs, error = function(e) NULL)
 
             # Load collated fine-mapping results
-            # Note: The actual file uses "07" as step_num, not "07b", and filename is "07.b_finemap_collated"
-            # Try both possible paths
-            collated_path <- get_output_path("05", "07.b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
+            # Note: The actual file uses "05b" as step_num, and filename is "05b_finemap_collated"
+            # Try both possible paths (for backward compatibility)
+            collated_path <- get_output_path("05b", "05b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
             if (!file.exists(collated_path) || file.size(collated_path) == 0) {
-                # Try with step_num "07" instead
-                collated_path_alt <- get_output_path("03", "07.b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
+                # Try alternative path for backward compatibility
+                collated_path_alt <- get_output_path("05", "05b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
                 if (file.exists(collated_path_alt) && file.size(collated_path_alt) > 0) {
                     collated_path <- collated_path_alt
                     log_info("Found collated file at alternative path: {collated_path}")
@@ -1473,7 +1481,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
             }
 
             if (!is.null(top_variants) && nrow(top_variants) > 0) {
-                # Apply proper ranking (matching 07b_pqtl_outliers.R)
+                # Apply proper ranking (matching 05b_pqtl_outliers.R)
                 # If heterozygosity column exists, use heterozygosity-weighted ranking
                 # Otherwise, use MAF-weighted ranking or standard ranking
                 if ("heterozygosity" %in% names(top_variants) && "maf" %in% names(top_variants)) {
@@ -2028,11 +2036,11 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
                             log_info("  Combined (ANY metric OR Composite): {n_combined} samples")
 
                             # Save pQTL results with all metrics
-                            pqtl_outliers_path <- file.path(test_output_dir, "07_07c_pqtl_outliers_test_case.tsv")
+                            pqtl_outliers_path <- file.path(test_output_dir, "05_05c_pqtl_outliers_test_case.tsv")
                             ensure_output_dir(pqtl_outliers_path)
                             fwrite(sample_stats[Outlier == TRUE], pqtl_outliers_path, sep = "\t")
 
-                            pqtl_stats_path <- file.path(test_output_dir, "07_07c_pqtl_stats_multi_metric_test_case.tsv")
+                            pqtl_stats_path <- file.path(test_output_dir, "05_05c_pqtl_stats_multi_metric_test_case.tsv")
                             fwrite(sample_stats, pqtl_stats_path, sep = "\t")
                             log_info("Saved multi-metric stats to: {pqtl_stats_path}")
 
@@ -2198,7 +2206,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
                                         )
 
                                     plot_path <- file.path(test_output_dir,
-                                        paste0("07_07c_pqtl_", file_suffix, "_test_case_fg3_batch_02.pdf"))
+                                        paste0("05_05c_pqtl_", file_suffix, "_test_case_fg3_batch_02.pdf"))
                                     ggsave(plot_path, p, width = 12, height = 8)
                                     log_info("Saved {file_suffix} plot to: {plot_path}")
 
@@ -2354,20 +2362,20 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
                                     )
 
                                 pqtl_plot_path <- file.path(test_output_dir,
-                                    "07_07c_pqtl_sex_crossref_faceted_test_case_fg3_batch_02.pdf")
+                                    "05_05c_pqtl_sex_crossref_faceted_test_case_fg3_batch_02.pdf")
                                 ggsave(pqtl_plot_path, p_combined, width = 12, height = 8)
                                 log_info("Saved combined multi-metric plot to: {pqtl_plot_path}")
 
                                 # Generate distribution plot
                                 dist_plot_path <- file.path(test_output_dir,
-                                    "07_07c_meanabsz_distribution_test_case_fg3_batch_02.pdf")
+                                    "05_05c_meanabsz_distribution_test_case_fg3_batch_02.pdf")
                                 create_meanabsz_distribution_plot(sample_stats, ground_truth, dist_plot_path)
 
                                 # Generate scatter plot (MeanAbsZ vs Genetic Distance)
                                 if ("genetic_distance" %in% names(ground_truth) &&
                                     sum(!is.na(ground_truth$genetic_distance)) > 0) {
                                     scatter_plot_path <- file.path(test_output_dir,
-                                        "07_07c_meanabsz_vs_distance_test_case_fg3_batch_02.pdf")
+                                        "05_05c_meanabsz_vs_distance_test_case_fg3_batch_02.pdf")
                                     create_meanabsz_vs_distance_plot(sample_stats, ground_truth, scatter_plot_path)
                                 } else {
                                     log_warn("Genetic distances not available. Skipping scatter plot.")
@@ -2381,7 +2389,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
                                     gen_pcs_plot <- load_genetic_pcs(covariate_file, all_finngenids)
                                     if (!is.null(gen_pcs_plot) && nrow(gen_pcs_plot) > 0) {
                                         gpc1_plot_path <- file.path(test_output_dir,
-                                            "07_07c_gpc1_vs_meanabsz_test_case_fg3_batch_02.pdf")
+                                            "05_05c_gpc1_vs_meanabsz_test_case_fg3_batch_02.pdf")
                                         create_gpc1_vs_meanabsz_plot(sample_stats, ground_truth, gen_pcs_plot, gpc1_plot_path)
                                     } else {
                                         log_warn("Genetic PCs not available. Skipping gPC1 scatter plot.")
@@ -2462,7 +2470,7 @@ run_validation_tests <- function(synthetic_npx_path, synthetic_metadata_path, gr
 }
 
 # Function to extract actual genotypes for a cohort using sparse method
-# Similar to 07b_pqtl_outliers.R but for a specific set of FINNGENIDs
+# Similar to 05b_pqtl_outliers.R but for a specific set of FINNGENIDs
 extract_cohort_genotypes <- function(cohort_finngenids, top_variants, genotype_path, config, batch_id, cached_genotype_info = NULL) {
     log_info("Extracting actual genotypes for {length(cohort_finngenids)} samples using sparse method...")
 
@@ -2775,11 +2783,11 @@ main <- function() {
         stop("No pqtl_outliers configuration found")
     }
 
-    # Try both possible paths (07b and 07)
-    collated_path <- get_output_path("05", "07.b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
+    # Try both possible paths (05b, with backward compatibility)
+    collated_path <- get_output_path("05b", "05b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
     if (!file.exists(collated_path) || file.size(collated_path) == 0) {
-        # Try with step_num "07" instead
-        collated_path_alt <- get_output_path("03", "07.b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
+        # Try alternative path for backward compatibility
+        collated_path_alt <- get_output_path("05", "05b_finemap_collated", batch_id, "pqtl", "tsv", config = config)
         if (file.exists(collated_path_alt) && file.size(collated_path_alt) > 0) {
             collated_path <- collated_path_alt
             log_info("Found collated file at alternative path: {collated_path}")
@@ -2818,7 +2826,7 @@ main <- function() {
             log_info("MAF filter not configured or disabled. Using all variants.")
         }
 
-        # Apply proper ranking (matching 07b_pqtl_outliers.R)
+        # Apply proper ranking (matching 05b_pqtl_outliers.R)
         # If heterozygosity column exists, use heterozygosity-weighted ranking
         # Otherwise, use MAF-weighted ranking or standard ranking
         if ("heterozygosity" %in% names(top_variants) && "maf" %in% names(top_variants)) {
@@ -3543,16 +3551,23 @@ main <- function() {
     ))
 }
 
-# Run if executed directly
-if (!interactive()) {
+# Auto-execute when sourced by pipeline runner or run directly
+# The test_enabled check above (line 92-100) handles the disabled case
+# If we reach here and test is enabled, execute main()
+# This executes both when run directly and when sourced by pipeline runner
+if (test_enabled) {
     result <- tryCatch({
         main()
     }, error = function(e) {
         log_error("Test case generation failed: {e$message}")
         traceback()
-        quit(status = 1)
+        if (!interactive()) {
+            quit(status = 1)
+        } else {
+            stop(e)
+        }
     })
-
+    
     log_info("Governance test case generation completed successfully")
     log_info("Test case directory: {result$test_output_dir}")
 }

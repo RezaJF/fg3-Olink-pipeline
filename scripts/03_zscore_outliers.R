@@ -213,9 +213,9 @@ analyze_outlier_patterns <- function(zscore_matrix, outlier_result, metadata = N
   ))
 }
 
-# Function to create integrated outlier tracking across all steps (04-07b)
+# Function to create integrated outlier tracking across all steps (04-05b)
 create_integrated_outlier_tracking <- function(zscore_outliers, metadata = NULL, batch_id = NULL, config = NULL) {
-  log_info("Creating integrated outlier tracking across steps 04-07b")
+  log_info("Creating integrated outlier tracking across steps 04-05b")
 
   # Get batch_id and config if not provided
   if (is.null(batch_id)) {
@@ -494,7 +494,7 @@ create_integrated_plots <- function(integrated_tracking) {
     theme(legend.position = "none")
 
   # 3. Overlap patterns (Venn diagram style) - now including pQTL
-  # Handle pQTL column (may not exist if step 07b hasn't run yet)
+  # Handle pQTL column (may not exist if step 05b hasn't run yet)
   if (!"pQTL" %in% names(integrated_tracking)) {
     integrated_tracking[, pQTL := 0]
   }
@@ -1170,7 +1170,7 @@ main <- function() {
   cat("\nMatrix after single-pass removal:", nrow(npx_clean), "x", ncol(npx_clean), "\n")
   cat("Matrix after iterative removal:", nrow(npx_iterative_clean), "x", ncol(npx_iterative_clean), "\n")
 
-  cat("\n=== INTEGRATED OUTLIER TRACKING (STEPS 04-07b) ===\n")
+  cat("\n=== INTEGRATED OUTLIER TRACKING (STEPS 04-05b) ===\n")
   cat("Total samples flagged by any method:", nrow(integrated_tracking), "\n")
   cat("Samples flagged by multiple methods:", sum(integrated_tracking$N_Methods > 1), "\n")
   cat("  - 2 methods:", sum(integrated_tracking$N_Methods == 2), "\n")

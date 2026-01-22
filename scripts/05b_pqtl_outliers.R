@@ -212,15 +212,15 @@ load_trained_pqtls <- function(pqtl_config, config, batch_id) {
 
     if (use_consensus_pqtls) {
         training_output_dir <- file.path(config$output$base_dir, training_config$output_dir %||% "pqtl-training", batch_id)
-        consensus_pqtls_path <- file.path(training_output_dir, "07a_consensus_pqtls.tsv")
-        consensus_config_path <- file.path(training_output_dir, "07a_consensus_config.yaml")
+        consensus_pqtls_path <- file.path(training_output_dir, "05a_consensus_pqtls.tsv")
+        consensus_config_path <- file.path(training_output_dir, "05a_consensus_config.yaml")
 
         # Fallback to legacy names
         if (!file.exists(consensus_pqtls_path)) {
-            consensus_pqtls_path <- file.path(training_output_dir, training_config$outputs$selected_pqtls %||% "07a_selected_pqtls.tsv")
+            consensus_pqtls_path <- file.path(training_output_dir, training_config$outputs$selected_pqtls %||% "05a_selected_pqtls.tsv")
         }
         if (!file.exists(consensus_config_path)) {
-            consensus_config_path <- file.path(training_output_dir, training_config$outputs$trained_thresholds %||% "07a_trained_thresholds.yaml")
+            consensus_config_path <- file.path(training_output_dir, training_config$outputs$trained_thresholds %||% "05a_trained_thresholds.yaml")
         }
 
         if (file.exists(consensus_pqtls_path) && file.exists(consensus_config_path)) {
@@ -242,8 +242,8 @@ load_trained_pqtls <- function(pqtl_config, config, batch_id) {
     } else if (!is.null(training_config) && isTRUE(training_config$enabled)) {
         # Legacy format
         training_output_dir <- file.path(config$output$base_dir, training_config$output_dir %||% "pqtl-training", batch_id)
-        selected_pqtls_path <- file.path(training_output_dir, training_config$outputs$selected_pqtls %||% "07a_selected_pqtls.tsv")
-        thresholds_path <- file.path(training_output_dir, training_config$outputs$trained_thresholds %||% "07a_trained_thresholds.yaml")
+        selected_pqtls_path <- file.path(training_output_dir, training_config$outputs$selected_pqtls %||% "05a_selected_pqtls.tsv")
+        thresholds_path <- file.path(training_output_dir, training_config$outputs$trained_thresholds %||% "05a_trained_thresholds.yaml")
 
         if (file.exists(selected_pqtls_path) && file.exists(thresholds_path)) {
             log_info("Loading trained parameters (legacy format)")
@@ -993,7 +993,7 @@ main <- function() {
     if (use_trained_params && !is.null(trained_pqtls) && nrow(trained_pqtls) > 0) {
         # Use consensus/LASSO-selected pQTLs from training step
         log_info("")
-        log_info("Using consensus pQTLs from training step (07a)")
+        log_info("Using consensus pQTLs from training step (05a)")
 
         # Extract rsid column (handle both TSV and YAML list formats)
         if ("rsid" %in% names(trained_pqtls)) {
@@ -1597,8 +1597,8 @@ main <- function() {
         }
 
         # Extract Youden J threshold from step 04 log file
-        # Look for format: "Mismatches (Youden J = 0.674): 19"
-        youden_threshold <- 0.5  # Default
+        # Look for format: "Threshold-based mismatches (Youden J = 0.674): 19" or "Mismatches (Youden J = 0.674): 19"
+        youden_threshold <- 0.5  # Default fallback
         # Construct log file path directly for step 04 (sex_outliers)
         base_dir <- config$output$base_dir %||% Sys.getenv("PIPELINE_OUTPUT_DIR", "output")
         log_dir <- file.path(base_dir, config$output$logs_dir %||% "logs")
@@ -1606,11 +1606,12 @@ main <- function() {
         if (multi_batch_mode && !is.null(batch_id)) {
             log_dir <- file.path(log_dir, batch_id)
         }
-        log_file_05 <- file.path(log_dir, "05_sex_outliers.log")
-        if (file.exists(log_file_05)) {
-            log_lines <- readLines(log_file_05)
-            # Look specifically for the "Mismatches (Youden J = X.XXX)" pattern
-            youden_line <- grep("Mismatches.*Youden J", log_lines, value = TRUE, ignore.case = TRUE)
+        # Step 04 log file is named 04_script.log (not 05_sex_outliers.log)
+        log_file_04 <- file.path(log_dir, "04_script.log")
+        if (file.exists(log_file_04)) {
+            log_lines <- readLines(log_file_04)
+            # Look specifically for the "Threshold-based mismatches (Youden J = X.XXX)" or "Mismatches (Youden J = X.XXX)" pattern
+            youden_line <- grep("(Threshold-based mismatches|Mismatches).*Youden J", log_lines, value = TRUE, ignore.case = TRUE)
             if (length(youden_line) == 0) {
                 # Fallback: look for any line with "Youden J"
                 youden_line <- grep("Youden J", log_lines, value = TRUE, ignore.case = TRUE)
@@ -1638,10 +1639,10 @@ main <- function() {
                     log_warn("Could not extract Youden J threshold from log line: {youden_line[1]}. Using default: {youden_threshold}")
                 }
             } else {
-                log_warn("No Youden J threshold found in log file. Using default: {youden_threshold}")
+                log_warn("No Youden J threshold found in step 04 log file. Using default: {youden_threshold}")
             }
         } else {
-            log_warn("step 04 log file not found: {log_file_05}. Using default Youden J threshold: {youden_threshold}")
+            log_warn("step 04 log file not found: {log_file_04}. Using default Youden J threshold: {youden_threshold}")
         }
 
         # Merge pQTL stats with sex predictions (using helper function)

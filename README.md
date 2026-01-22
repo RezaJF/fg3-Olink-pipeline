@@ -834,6 +834,36 @@ If you use this pipeline, please cite:
 - **Release Date**: January 2026
 - **Platform**: Olink Explore HT (5K)
 
+## Versioning and Releases
+
+This project uses **Semantic Release** with **Conventional Commits** for automated versioning and releases. 
+
+### How to Trigger a Release
+
+Simply commit your changes using [Conventional Commits](https://www.conventionalcommits.org/) format:
+
+- **`fix:`** → Patch release (1.2.1 → 1.2.2) - Bug fixes
+- **`feat:`** → Minor release (1.2.1 → 1.3.0) - New features  
+- **`BREAKING CHANGE:`** → Major release (1.2.1 → 2.0.0) - Breaking changes
+
+**Examples:**
+```bash
+git commit -m "fix(pipeline): resolve config loading bug"
+git commit -m "feat(qc): add comprehensive outlier tracking"
+git commit -m "feat(pipeline)!: refactor step numbering
+
+BREAKING CHANGE: Step numbers changed from 07a/07b to 05a/05b"
+```
+
+When you push to `main` or `master`, the release workflow will:
+1. Analyze commits and calculate the next version
+2. Update version in `VERSION`, `Dockerfile`, and `README.md`
+3. Generate `CHANGELOG.md` automatically
+4. Create a Git tag and GitHub Release
+5. Build and push Docker image to GHCR
+
+For detailed information, see [RELEASE.md](./RELEASE.md).
+
 ## License
 
 Copyright (c) 2026 Reza Jabal, PhD / Broad Institute of MIT & Harvard

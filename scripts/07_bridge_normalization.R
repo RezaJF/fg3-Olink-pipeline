@@ -320,6 +320,8 @@ main <- function() {
   }
 
   if(!run_enhanced_bridge) {
+    # Set environment variable to indicate step was skipped
+    Sys.setenv(PIPELINE_STEP_SKIPPED = "TRUE")
     log_info("Enhanced bridge normalization is disabled in config (run_enhanced_bridge: false)")
     log_info("Skipping step 07 - Enhanced bridge normalization")
     log_info("This step is only needed for multi-batch integration (FG2+FG3 or Batch1+Batch2)")
