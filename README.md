@@ -2,7 +2,7 @@
 
 **Platform**: Olink Explore HT (5K)
 
-**Version**: 1.1.0
+**Version**: 1.0.1
 
 **Release Date**: January 2026
 
@@ -73,7 +73,7 @@ flowchart TD
     BridgeNorm -->|Enabled| BridgeNormRun[Enhanced Bridge<br/>Quantile normalisation]
     BridgeNorm -->|Disabled| Covariate
 
-    BridgeNormRun --> Covariate["08_covariate_adjustment.R<br/>Adjust for covariates<br/>Default: age/sex, configurable<br/>Proteomic PCs excluded"]
+    BridgeNormRun --> Covariate[08_covariate_adjustment.R<br/>Adjust for covariates<br/>Default: age/sex - configurable<br/>Proteomic PCs excluded]
 
     Covariate --> Phenotype[09_prepare_phenotypes.R<br/>Combine QC results<br/>Create phenotype matrix]
 
@@ -706,7 +706,7 @@ echo $GITHUB_TOKEN | docker login ghcr.io -u USERNAME --password-stdin
 # Pull the image
 docker pull ghcr.io/USERNAME/fg3-olink-pipeline:latest
 
-# Or pull a specific version (e.g., v1.1.0)
+# Or pull a specific version (e.g., v1.0.1)
 docker pull ghcr.io/USERNAME/fg3-olink-pipeline:1.2.1
 
 # Run the pipeline
@@ -1017,7 +1017,7 @@ If you use this pipeline, please cite:
 
 - **Pipeline**: FinnGen 3 Olink Proteomics Analysis Pipeline
 - **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
-- **Version**: 1.1.0
+- **Version**: 1.0.1
 - **Release Date**: January 2026
 - **Platform**: Olink Explore HT (5K)
 
