@@ -79,6 +79,7 @@ INITIAL_QC_ANALYSIS.md
 REFACTORING_PROPOSAL_ANALYSIS.md
 RELEASE.md
 GIT_WORKFLOW.md
+PUSH_INSTRUCTIONS.md
 
 # Test and development scripts
 run_pipeline_from_step*.sh

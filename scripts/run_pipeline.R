@@ -304,6 +304,14 @@ run_step_for_batch <- function(step_name, batch_id, config, dry_run = FALSE) {
       return(TRUE)
     },
     error = function(e) {
+      # Check if this is a skip signal (not a real error)
+      if (e$message == "STEP_SKIPPED" || Sys.getenv("PIPELINE_STEP_SKIPPED", "FALSE") == "TRUE") {
+        success_msg <- paste0("⊘ Step ", step_name, " skipped\n")
+        cat(success_msg)
+        log_info("Step {step_name} (batch {batch_id}) was skipped")
+        return(TRUE)
+      }
+      # Real error - report it
       error_msg <- paste0("✗ Step ", step_name, " failed: ", e$message, "\n")
       cat(error_msg, file = stderr())
       log_error("Step {step_name} (batch {batch_id}) failed: {e$message}")

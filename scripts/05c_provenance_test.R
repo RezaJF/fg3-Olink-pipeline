@@ -97,14 +97,22 @@ test_enabled <- tryCatch(
 if (!test_enabled) {
     # Set environment variable to indicate step was skipped
     Sys.setenv(PIPELINE_STEP_SKIPPED = "TRUE")
-    log_info("Test case mode is disabled. Set test_case.enabled: true in config to enable.")
-    # When sourced by pipeline runner, don't quit - just return silently
-    # When run directly, quit cleanly
-    if (!interactive()) {
-        quit(status = 0)
+    # Get batch context for logging (minimal setup)
+    batch_id <- Sys.getenv("PIPELINE_BATCH_ID", config$batch$default_batch_id %||% "batch_01")
+    # Set up minimal logging to record the skip
+    base_dir <- config$output$base_dir %||% Sys.getenv("PIPELINE_OUTPUT_DIR", "output")
+    log_dir <- file.path(base_dir, config$output$logs_dir %||% "logs")
+    if (tryCatch(isTRUE(config$parameters$normalization$multi_batch_mode), error = function(e) FALSE) && !is.null(batch_id)) {
+        log_dir <- file.path(log_dir, batch_id)
     }
-    # When sourced interactively, just return (don't execute main())
-    # This prevents execution when sourced by pipeline runner if test is disabled
+    log_path <- file.path(log_dir, "05_05c_governance_test.log")
+    ensure_output_dir(log_path)
+    log_appender(appender_file(log_path))
+    log_info("Test case mode is disabled. Set test_case.enabled: true in config to enable.")
+    log_info("Step 05c_provenance_test skipped for batch: {batch_id}")
+    # Stop execution here - when sourced, this will be caught by run_pipeline.R
+    # Use stop() with a special message that indicates skip (not an error)
+    stop("STEP_SKIPPED")
 }
 
 # Get batch context
@@ -3552,22 +3560,20 @@ main <- function() {
 }
 
 # Auto-execute when sourced by pipeline runner or run directly
-# The test_enabled check above (line 92-100) handles the disabled case
-# If we reach here and test is enabled, execute main()
+# The test_enabled check above handles the disabled case (returns early)
+# If we reach here, test is enabled, so execute main()
 # This executes both when run directly and when sourced by pipeline runner
-if (test_enabled) {
-    result <- tryCatch({
-        main()
-    }, error = function(e) {
-        log_error("Test case generation failed: {e$message}")
-        traceback()
-        if (!interactive()) {
-            quit(status = 1)
-        } else {
-            stop(e)
-        }
-    })
-    
-    log_info("Governance test case generation completed successfully")
-    log_info("Test case directory: {result$test_output_dir}")
-}
+result <- tryCatch({
+    main()
+}, error = function(e) {
+    log_error("Test case generation failed: {e$message}")
+    traceback()
+    if (!interactive()) {
+        quit(status = 1)
+    } else {
+        stop(e)
+    }
+})
+
+log_info("Governance test case generation completed successfully")
+log_info("Test case directory: {result$test_output_dir}")

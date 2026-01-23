@@ -1,5 +1,25 @@
-# 1.0.0 (2026-01-23)
+# Changelog
 
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Bug Fixes
+
+* **pipeline:** Fix step 05c skip logic to prevent execution when disabled
+  * Fixed issue where step 05c_provenance_test executed setup code even when disabled
+  * Changed from `quit()` to `stop("STEP_SKIPPED")` to properly halt execution when sourced
+  * Pipeline now correctly skips step 05c and proceeds to step 05d when test_case.enabled: false
+
+* **pipeline:** Make Youden J detection failure-proof and remove hardcoded batch references
+  * Enhanced log file detection to work in both single-batch and multi-batch modes
+  * Added multi-fallback approach for log file path detection
+  * Removed hardcoded batch references, now uses config-driven batch determination
+
+## [1.0.0] (2026-01-23)
 
 ### Bug Fixes
 
@@ -23,7 +43,6 @@
 * **release:** Fix the GitHub Actions npm cache ([c22505f](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/c22505f50f1a3609d9577e805f8028f73d75b5f7))
 * Semantic Release tag detection — enhanced fix ([41c64ff](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/41c64ff34d748280945fc1a86e90585ecdfe5e1b))
 * Semantic Release tag error fixed ([9cbf14b](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/9cbf14b2002a2dfd171e4d4b735d652c61b5b1db))
-
 
 ### Features
 
