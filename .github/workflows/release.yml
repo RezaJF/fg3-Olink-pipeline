@@ -45,11 +45,31 @@ jobs:
             npm install
           fi
 
-      - name: Fetch all tags
+      - name: Fetch all tags and verify
         run: |
+          # Fetch all tags from remote (explicit origin fetch)
+          git fetch origin --tags --force
+          # Also fetch from default remote
           git fetch --tags --force
-          echo "Available tags:"
+          # Show all tags
+          echo "=== Available tags ==="
           git tag -l | sort -V || echo "No tags found"
+          # Show tag details for debugging
+          if git tag -l | grep -q "v1.0.0"; then
+            echo "=== Tag v1.0.0 details ==="
+            git show-ref --tags | grep "v1.0.0" || echo "Tag v1.0.0 not found in refs"
+            git log --oneline --decorate --all | grep "v1.0.0" | head -3 || echo "Tag v1.0.0 not in any branch history"
+            # Check if tag is reachable from current HEAD
+            if git merge-base --is-ancestor v1.0.0 HEAD 2>/dev/null || git tag --contains HEAD | grep -q "v1.0.0"; then
+              echo "✓ Tag v1.0.0 is reachable from current HEAD"
+            else
+              echo "⚠ Tag v1.0.0 exists but is NOT reachable from current HEAD"
+              echo "This may cause semantic-release to not detect it"
+            fi
+          fi
+          # Verify semantic-release can see tags (sorted by version)
+          echo "=== Git tag list for semantic-release ==="
+          git tag -l --sort=-version:refname | head -5
 
       - name: Run semantic-release
         id: semantic-release
