@@ -600,19 +600,25 @@ main <- function() {
   if (multi_batch_mode) {
     log_info("Multi-batch mode enabled: Loading batch 1 data for normalisation")
 
-    # Load batch 1 NPX matrix (use reference batch's final cleaned matrix if available)
-    # In multi-batch mode, batch_01 is the other batch
-    other_batch_id <- if (batch_id == "batch_02") "batch_01" else "batch_02"
-    batch1_npx_path <- get_output_path("05d", "npx_matrix_all_qc_passed", other_batch_id, "phenotypes", "rds", config = config)
-    if (!file.exists(batch1_npx_path)) {
-      # Fallback to step 00 QC matrix
-      batch1_npx_path <- get_output_path("00", "npx_matrix_qc", other_batch_id, "qc", config = config)
-    }
-    if (file.exists(batch1_npx_path)) {
-      batch1_npx_matrix <- readRDS(batch1_npx_path)
-      log_info("Loaded {other_batch_id} NPX matrix: {nrow(batch1_npx_matrix)} samples x {ncol(batch1_npx_matrix)} proteins")
+    # Load other batch NPX matrix (use reference batch's final cleaned matrix if available)
+    # Get other batch ID from config (not hardcoded)
+    other_batch_id <- get_other_batch_id(batch_id, config)
+    if (is.null(other_batch_id)) {
+      log_warn("Could not determine other batch ID for multi-batch normalization. Skipping cross-batch normalization.")
+      batch1_npx_matrix <- NULL
     } else {
-      log_warn("{other_batch_id} NPX matrix not found: {batch1_npx_path}")
+      batch1_npx_path <- get_output_path("05d", "npx_matrix_all_qc_passed", other_batch_id, "phenotypes", "rds", config = config)
+      if (!file.exists(batch1_npx_path)) {
+        # Fallback to step 00 QC matrix
+        batch1_npx_path <- get_output_path("00", "npx_matrix_qc", other_batch_id, "qc", config = config)
+      }
+      if (file.exists(batch1_npx_path)) {
+        batch1_npx_matrix <- readRDS(batch1_npx_path)
+        log_info("Loaded {other_batch_id} NPX matrix: {nrow(batch1_npx_matrix)} samples x {ncol(batch1_npx_matrix)} proteins")
+      } else {
+        log_warn("{other_batch_id} NPX matrix not found: {batch1_npx_path}")
+        batch1_npx_matrix <- NULL
+      }
     }
 
     # Load bridge mapping (from step 00)

@@ -105,10 +105,13 @@ parameters:
   # Normalization
   normalization:
     method: "bridge_normalization"  # or "median_normalization"
-    reference_batch: "batch_01"  # Reference batch ID for bridge normalization
+    # Reference batch ID for bridge normalization (required when multi_batch_mode: true)
+    # This batch will be processed first and used as reference for other batches
+    reference_batch: "batch_01"  # e.g., "batch_01", "batch_02" - must match a batch ID in 'batches' section
     run_enhanced_bridge: false  # Step 07: Run enhanced bridge normalization
     enhanced_bridge_input: "raw"  # Input for step 07: "raw" or "step06_median"
-    multi_batch_mode: false  # Set to true when integrating multiple batches
+    # Set to true when integrating multiple batches (requires 'batches' section to be configured)
+    multi_batch_mode: false  # When true, pipeline processes batches sequentially with reference batch first
 
   # Aggregation (only used when multi_batch_mode: true)
   aggregation:

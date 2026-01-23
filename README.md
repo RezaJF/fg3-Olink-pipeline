@@ -761,20 +761,179 @@ Rscript scripts/01_pca_outliers.R
 
 ## Multi-Batch Processing
 
-The pipeline supports processing multiple batches:
+The pipeline supports processing and harmonising multiple batches of proteomics data. This is essential when integrating data from different experimental runs or time points.
 
-1. Configure batches in `config.yaml` → `batches` section
-2. Run pipeline for each batch:
-```bash
-docker-compose run -e PIPELINE_BATCH_ID=batch_01 fg3-olink-pipeline
-docker-compose run -e PIPELINE_BATCH_ID=batch_02 fg3-olink-pipeline
+### Overview
+
+Multi-batch mode enables:
+- **Sequential Processing**: Reference batch is processed first, then other batches use QCed reference data
+- **Bridge Normalization**: Uses shared bridge samples to harmonise protein levels across batches
+- **Aggregated Outputs**: Optional aggregation of final phenotype matrices from all batches
+
+### Configuration
+
+#### Step 1: Configure Batch Data Paths
+
+In `config.yaml`, define each batch in the `batches` section:
+
+```yaml
+batches:
+  batch_01:
+    batch_id: "batch_01"
+    batch_designation: "fg3_batch_01"  # Used in output filenames
+    data:
+      npx_matrix_file: "/path/to/batch_01_npx_matrix.parquet"
+      metadata_file: "/path/to/batch_01_metadata.tsv"
+      bridging_samples_file: null  # Optional
+      bridging_samples_finngenid_map: null  # Optional
+  batch_02:
+    batch_id: "batch_02"
+    batch_designation: "fg3_batch_02"
+    data:
+      npx_matrix_file: "/path/to/batch_02_npx_matrix.parquet"
+      metadata_file: "/path/to/batch_02_metadata.tsv"
+      bridging_samples_file: "/path/to/bridging_samples.csv"  # Optional
+      bridging_samples_finngenid_map: "/path/to/bridging_finngenid_map.tsv"  # Optional
 ```
-3. Enable multi-batch normalisation in config:
+
+**Important Notes:**
+- Each batch must have a unique `batch_id` (e.g., `batch_01`, `batch_02`)
+- `batch_designation` is used as a suffix in output filenames (e.g., `fg3_batch_01`)
+- NPX matrices can be in **long format** (SampleID, Assay/OlinkID, NPX columns) or **wide format** (samples as rows, proteins as columns)
+- The pipeline automatically detects and converts long format to wide format
+
+#### Step 2: Enable Multi-Batch Mode
+
+Set `multi_batch_mode: true` in the normalization section:
+
 ```yaml
 parameters:
   normalization:
-    multi_batch_mode: true
+    method: "bridge_normalization"  # Required for multi-batch mode
+    reference_batch: "batch_02"  # Reference batch ID (must match a batch_id above)
+    multi_batch_mode: true  # Enable multi-batch processing
+    run_enhanced_bridge: false  # Optional: Enhanced bridge normalization (Step 07)
 ```
+
+**Reference Batch Selection:**
+- The reference batch is processed first through all independent steps (00-05, 08, 09-11)
+- Other batches use QCed data from the reference batch for normalization
+- Choose the batch with the highest quality or most complete data as reference
+- The `reference_batch` must match one of the `batch_id` values in the `batches` section
+
+#### Step 3: Optional Aggregation
+
+To create aggregated outputs combining all batches:
+
+```yaml
+parameters:
+  aggregation:
+    aggregate_output: true  # Enable aggregation in steps 09-11
+```
+
+When enabled, steps 09-11 will create additional aggregate outputs combining data from all batches.
+
+### Running Multi-Batch Pipeline
+
+#### Method 1: Automatic Processing (Recommended)
+
+The pipeline automatically processes all batches when `multi_batch_mode: true`:
+
+```bash
+# Run all steps for all batches
+Rscript scripts/run_pipeline.R --config config/config.yaml --step all
+
+# Or using Docker
+docker-compose run fg3-olink-pipeline
+```
+
+**Processing Order:**
+1. **Phase 1**: Reference batch processed through all independent steps (00-05, 08, 09-11)
+2. **Phase 2**: Other batches processed through independent steps (using QCed reference data)
+3. **Phase 3**: Cross-batch normalization (Step 06) - harmonises batches using bridge samples
+4. **Phase 4**: Optional aggregation (Steps 09-11) - combines final outputs
+
+#### Method 2: Manual Batch Processing
+
+Process batches individually (useful for debugging):
+
+```bash
+# Process batch_01
+Rscript scripts/run_pipeline.R --config config/config.yaml --batch batch_01 --step all
+
+# Process batch_02
+Rscript scripts/run_pipeline.R --config config/config.yaml --batch batch_02 --step all
+```
+
+### Output Structure
+
+In multi-batch mode, outputs are organized by batch:
+
+```
+output/
+├── logs/
+│   ├── batch_01/
+│   │   ├── 00_data_loader.log
+│   │   ├── 04_sex_outliers.log
+│   │   └── ...
+│   └── batch_02/
+│       ├── 00_data_loader.log
+│       └── ...
+├── qc/
+│   ├── batch_01/
+│   │   └── 00_npx_matrix_analysis_ready.rds
+│   └── batch_02/
+│       └── 00_npx_matrix_analysis_ready.rds
+├── outliers/
+│   ├── batch_01/
+│   │   └── 05b_05b_pqtl_sex_crossref_fg3_batch_01.pdf
+│   └── batch_02/
+│       └── 05b_05b_pqtl_sex_crossref_fg3_batch_02.pdf
+└── phenotypes/
+    ├── batch_01/
+    │   └── 09_phenotype_matrix_fg3_batch_01.rds
+    ├── batch_02/
+    │   └── 09_phenotype_matrix_fg3_batch_02.rds
+    └── aggregate/  # If aggregation enabled
+        └── 09_aggregate_phenotype_matrix.rds
+```
+
+**File Naming Convention:**
+- Single-batch mode: `{step_num}_{filename}.{ext}`
+- Multi-batch mode: `{step_num}_{filename}_{batch_designation}.{ext}`
+- Aggregate outputs: `{step_num}_aggregate_{filename}.{ext}`
+
+### Bridge Samples
+
+Bridge samples are shared across batches and are essential for cross-batch harmonisation:
+
+- **Purpose**: Enable normalization between batches by providing common reference points
+- **Location**: Included in each batch's NPX matrix and metadata
+- **Identification**: Bridge samples are automatically identified from metadata or bridging sample files
+- **Usage**: Used in Step 06 (Bridge Normalization) to harmonise protein levels across batches
+
+**Expected Results:**
+- Typically 96%+ of bridge samples have genetic sex information recovered
+- Bridge samples are included in the analysis-ready dataset
+- Bridge samples are used for cross-batch harmonisation but not removed from final outputs
+
+### Troubleshooting
+
+**Issue: "Reference batch not specified or invalid"**
+- **Solution**: Ensure `reference_batch` in config matches a `batch_id` in the `batches` section
+- **Check**: Verify batch IDs are consistent (e.g., `batch_01` vs `batch_1`)
+
+**Issue: "Could not determine other batch ID"**
+- **Solution**: Ensure `multi_batch_mode: true` and at least 2 batches are defined in config
+- **Check**: Verify `batches` section has multiple batch entries
+
+**Issue: "Long format NPX file not loading"**
+- **Solution**: The pipeline automatically detects and converts long format files
+- **Check**: Ensure NPX file has `SampleID`, `Assay`/`OlinkID`, and `NPX`/`PCNormalizedNPX` columns
+
+**Issue: "Youden J threshold not found in logs"**
+- **Solution**: The pipeline tries multiple log file name patterns automatically
+- **Check**: Verify step 04 completed successfully and log files exist in `output/logs/{batch_id}/`
 
 ## Dependencies
 
@@ -836,14 +995,15 @@ If you use this pipeline, please cite:
 
 ## Versioning and Releases
 
-This project uses **Semantic Release** with **Conventional Commits** for automated versioning and releases. 
+This project uses **Semantic Release** with **Conventional Commits** for automated versioning and releases.
 
 ### How to Trigger a Release
+
 
 Simply commit your changes using [Conventional Commits](https://www.conventionalcommits.org/) format:
 
 - **`fix:`** → Patch release (1.2.1 → 1.2.2) - Bug fixes
-- **`feat:`** → Minor release (1.2.1 → 1.3.0) - New features  
+- **`feat:`** → Minor release (1.2.1 → 1.3.0) - New features
 - **`BREAKING CHANGE:`** → Major release (1.2.1 → 2.0.0) - Breaking changes
 
 **Examples:**

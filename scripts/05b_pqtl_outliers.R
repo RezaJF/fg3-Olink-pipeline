@@ -1599,16 +1599,48 @@ main <- function() {
         # Extract Youden J threshold from step 04 log file
         # Look for format: "Threshold-based mismatches (Youden J = 0.674): 19" or "Mismatches (Youden J = 0.674): 19"
         youden_threshold <- 0.5  # Default fallback
-        # Construct log file path directly for step 04 (sex_outliers)
+
+        # Construct log file paths to try (failure-proof for both single and multi-batch modes)
+        # Primary: Use get_log_path() helper (works when run through pipeline runner)
+        log_file_04_primary <- get_log_path("04", batch_id, config)
+
+        # Get log directory for fallback searches
         base_dir <- config$output$base_dir %||% Sys.getenv("PIPELINE_OUTPUT_DIR", "output")
         log_dir <- file.path(base_dir, config$output$logs_dir %||% "logs")
         multi_batch_mode <- tryCatch(isTRUE(config$parameters$normalization$multi_batch_mode), error = function(e) FALSE)
         if (multi_batch_mode && !is.null(batch_id)) {
             log_dir <- file.path(log_dir, batch_id)
         }
-        # Step 04 log file is named 04_script.log (not 05_sex_outliers.log)
-        log_file_04 <- file.path(log_dir, "04_script.log")
-        if (file.exists(log_file_04)) {
+
+        # Fallback log file names (for direct script execution in single-batch mode)
+        log_file_04_fallback1 <- file.path(log_dir, "04_sex_outliers.log")
+        log_file_04_fallback2 <- file.path(log_dir, "04_script.log")
+        log_file_04_fallback3 <- file.path(log_dir, "04_pipeline.log")
+
+        # Try all possible log file paths
+        log_file_04 <- NULL
+        log_file_tried <- character()
+
+        for (candidate_file in c(log_file_04_primary, log_file_04_fallback1, log_file_04_fallback2, log_file_04_fallback3)) {
+            log_file_tried <- c(log_file_tried, candidate_file)
+            if (file.exists(candidate_file)) {
+                log_file_04 <- candidate_file
+                log_info("Found step 04 log file: {log_file_04}")
+                break
+            }
+        }
+
+        # If still not found, search for any 04_*.log file in log directory
+        if (is.null(log_file_04) && dir.exists(log_dir)) {
+            log_files_04 <- list.files(log_dir, pattern = "^04_.*\\.log$", full.names = TRUE)
+            if (length(log_files_04) > 0) {
+                log_file_04 <- log_files_04[1]
+                log_info("Found step 04 log file via pattern search: {log_file_04}")
+            }
+        }
+
+        # Extract Youden J threshold from log file
+        if (!is.null(log_file_04) && file.exists(log_file_04)) {
             log_lines <- readLines(log_file_04)
             # Look specifically for the "Threshold-based mismatches (Youden J = X.XXX)" or "Mismatches (Youden J = X.XXX)" pattern
             youden_line <- grep("(Threshold-based mismatches|Mismatches).*Youden J", log_lines, value = TRUE, ignore.case = TRUE)
@@ -1642,7 +1674,7 @@ main <- function() {
                 log_warn("No Youden J threshold found in step 04 log file. Using default: {youden_threshold}")
             }
         } else {
-            log_warn("step 04 log file not found: {log_file_04}. Using default Youden J threshold: {youden_threshold}")
+            log_warn("Step 04 log file not found. Tried: {paste(log_file_tried, collapse=', ')}. Using default Youden J threshold: {youden_threshold}")
         }
 
         # Merge pQTL stats with sex predictions (using helper function)

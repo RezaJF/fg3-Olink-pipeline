@@ -612,9 +612,13 @@ main <- function() {
   if (aggregate_output && multi_batch_mode && !is.null(phenotype_result$finngenid_matrix)) {
     log_info("Aggregation enabled: Attempting to merge batch 1 and batch 2 data")
 
-    # Check if batch 1 processed data exists
-    # Note: Batch 1 would need to be processed through steps 00-10 separately
-    other_batch_id <- if (batch_id == "batch_02") "batch_01" else "batch_02"
+    # Check if other batch processed data exists
+    # Get other batch ID from config (not hardcoded)
+    other_batch_id <- get_other_batch_id(batch_id, config)
+    if (is.null(other_batch_id)) {
+      log_warn("Could not determine other batch ID for aggregation. Skipping aggregation.")
+      aggregate_output <- FALSE
+    }
     batch1_file <- get_output_path("09", "phenotype_matrix_finngenid", other_batch_id, "phenotypes", config = config)
     batch1_mapping_file <- get_output_path("00", "sample_mapping", other_batch_id, "qc", config = config)
 

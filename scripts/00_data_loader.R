@@ -145,15 +145,68 @@ load_npx_matrix <- function(matrix_file) {
     }
   }
 
-  # Extract SampleID and convert to matrix
-  sample_ids <- dt$SampleID
-  protein_cols <- setdiff(names(dt), "SampleID")
+  # Detect if data is in long format (one row per sample-protein pair)
+  # Long format indicators: Has SampleID, Assay/OlinkID, and NPX/PCNormalizedNPX columns
+  has_assay_col <- "Assay" %in% names(dt) || "OlinkID" %in% names(dt)
+  has_npx_col <- "NPX" %in% names(dt) || "PCNormalizedNPX" %in% names(dt)
+  is_long_format <- has_assay_col && has_npx_col
 
-  # Convert to matrix
-  npx_matrix <- as.matrix(dt[, ..protein_cols])
-  rownames(npx_matrix) <- sample_ids
+  if (is_long_format) {
+    log_info("Detected LONG format NPX file - converting to wide format matrix")
+    
+    # Identify protein identifier column (Assay or OlinkID)
+    protein_id_col <- if ("Assay" %in% names(dt)) "Assay" else "OlinkID"
+    log_info("Using '{protein_id_col}' as protein identifier")
+    
+    # Identify NPX value column (prefer NPX over PCNormalizedNPX for raw data)
+    npx_value_col <- if ("NPX" %in% names(dt)) "NPX" else "PCNormalizedNPX"
+    log_info("Using '{npx_value_col}' as NPX value column")
+    
+    # Check for duplicate sample-protein pairs
+    key_cols <- c("SampleID", protein_id_col)
+    n_duplicates <- sum(duplicated(dt[, ..key_cols]))
+    if (n_duplicates > 0) {
+      log_warn("Found {n_duplicates} duplicate sample-protein pairs - using mean value")
+      # Aggregate duplicates by taking mean
+      dt <- dt[, .(NPX = mean(get(npx_value_col), na.rm = TRUE)), 
+                  by = c("SampleID", protein_id_col)]
+      setnames(dt, "NPX", npx_value_col)
+    }
+    
+    # Convert long to wide using dcast (data.table's pivot function)
+    log_info("Converting long format to wide format matrix...")
+    # Use formula interface for dcast - need to construct formula dynamically
+    formula_str <- paste("SampleID ~", protein_id_col)
+    dt_wide <- dcast(
+      dt,
+      as.formula(formula_str),
+      value.var = npx_value_col,
+      fun.aggregate = mean,  # Handle any remaining duplicates
+      na.rm = TRUE
+    )
+    
+    # Extract SampleID and protein columns
+    sample_ids <- dt_wide$SampleID
+    protein_cols <- setdiff(names(dt_wide), "SampleID")
+    
+    # Convert to matrix
+    npx_matrix <- as.matrix(dt_wide[, ..protein_cols])
+    rownames(npx_matrix) <- sample_ids
+    
+    log_info("Converted long format to wide: {nrow(npx_matrix)} samples x {ncol(npx_matrix)} proteins")
+  } else {
+    # WIDE format: Extract SampleID and convert to matrix
+    sample_ids <- dt$SampleID
+    protein_cols <- setdiff(names(dt), "SampleID")
+    
+    # Convert to matrix
+    npx_matrix <- as.matrix(dt[, ..protein_cols])
+    rownames(npx_matrix) <- sample_ids
+    
+    log_info("Loaded wide format NPX matrix: {nrow(npx_matrix)} samples x {ncol(npx_matrix)} proteins")
+  }
 
-  log_info("Loaded NPX matrix: {nrow(npx_matrix)} samples x {ncol(npx_matrix)} proteins")
+  log_info("Final matrix dimensions: {nrow(npx_matrix)} samples x {ncol(npx_matrix)} proteins")
   log_info("Missing values: {sum(is.na(npx_matrix))} ({round(sum(is.na(npx_matrix))/(nrow(npx_matrix)*ncol(npx_matrix))*100, 2)}%)")
 
   return(npx_matrix)

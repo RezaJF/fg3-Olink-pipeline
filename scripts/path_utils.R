@@ -479,6 +479,73 @@ add_finngenid_column <- function(dt, batch_id = NULL, config = NULL,
   return(dt)
 }
 
+#' Get other batch ID in multi-batch mode
+#'
+#' Determines the "other batch" ID when processing one batch in multi-batch mode.
+#' Uses the reference batch from config to determine which batch is the other one.
+#'
+#' @param current_batch_id Character string of current batch identifier
+#' @param config Configuration object
+#'
+#' @return Character string of other batch ID, or NULL if not in multi-batch mode
+#'
+#' @examples
+#' # In multi-batch mode with batch_02 as reference
+#' other_batch <- get_other_batch_id("batch_01", config)
+#' # Returns: "batch_02"
+get_other_batch_id <- function(current_batch_id, config = NULL) {
+  # Load config if not provided
+  if (is.null(config)) {
+    config_file <- Sys.getenv("PIPELINE_CONFIG", "")
+    if (config_file == "" || !file.exists(config_file)) {
+      return(NULL)
+    }
+    config <- yaml::read_yaml(config_file)
+  }
+
+  # Check if multi-batch mode
+  multi_batch_mode <- tryCatch(
+    isTRUE(config$parameters$normalization$multi_batch_mode),
+    error = function(e) FALSE
+  )
+
+  if (!multi_batch_mode) {
+    return(NULL)
+  }
+
+  # Get all batches from config
+  batches <- tryCatch(
+    names(config$batches),
+    error = function(e) NULL
+  )
+
+  if (is.null(batches) || length(batches) < 2) {
+    return(NULL)
+  }
+
+  # Get reference batch from config
+  reference_batch_id <- tryCatch(
+    config$parameters$normalization$reference_batch,
+    error = function(e) NULL
+  )
+
+  # If reference batch is specified and current batch is not the reference,
+  # return the reference batch as the "other batch"
+  if (!is.null(reference_batch_id) && current_batch_id != reference_batch_id) {
+    if (reference_batch_id %in% batches) {
+      return(reference_batch_id)
+    }
+  }
+
+  # Otherwise, return the first batch that's not the current batch
+  other_batches <- setdiff(batches, current_batch_id)
+  if (length(other_batches) > 0) {
+    return(other_batches[1])
+  }
+
+  return(NULL)
+}
+
 
 
 

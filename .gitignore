@@ -4,7 +4,7 @@ config/*.yaml
 !config/config.yaml.template
 
 # Output directories
-output/
+output*/
 logs/
 data/
 
@@ -78,6 +78,7 @@ COMMIT_MESSAGE*.txt
 INITIAL_QC_ANALYSIS.md
 REFACTORING_PROPOSAL_ANALYSIS.md
 RELEASE.md
+GIT_WORKFLOW.md
 
 # Test and development scripts
 run_pipeline_from_step*.sh

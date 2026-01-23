@@ -465,8 +465,13 @@ main <- function() {
   if (aggregate_output && multi_batch_mode && !is.null(finngenid_rint)) {
     log_info("Aggregation enabled: Attempting to rank-normalise batch 1 and create aggregate output")
 
-    # Check if batch 1 processed data exists
-    other_batch_id <- if (batch_id == "batch_02") "batch_01" else "batch_02"
+    # Check if other batch processed data exists
+    # Get other batch ID from config (not hardcoded)
+    other_batch_id <- get_other_batch_id(batch_id, config)
+    if (is.null(other_batch_id)) {
+      log_warn("Could not determine other batch ID for aggregation. Skipping aggregation.")
+      aggregate_output <- FALSE
+    }
     batch1_file <- get_output_path("10", "phenotype_matrix_finngenid_unrelated", other_batch_id, "phenotypes", config = config)
 
     if (file.exists(batch1_file)) {

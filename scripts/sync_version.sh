@@ -38,10 +38,10 @@ echo "✓ Updated VERSION file"
 if [ -f "Dockerfile" ]; then
     # Update version comment
     sed -i "s/^# Version: .*/# Version: ${VERSION_CLEAN}/" Dockerfile
-    
+
     # Update LABEL version
     sed -i "s/LABEL version=\".*\"/LABEL version=\"${VERSION_CLEAN}\"/" Dockerfile
-    
+
     echo "✓ Updated Dockerfile"
 fi
 
@@ -53,7 +53,7 @@ if [ -f "README.md" ]; then
     sed -i "s/- \*\*Version\*\*: [0-9.]*/- **Version**: ${VERSION_CLEAN}/g" README.md
     # Update version in example comments (e.g., v1.2.1)
     sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v${VERSION_CLEAN}/g" README.md
-    
+
     echo "✓ Updated README.md"
 fi
 
@@ -66,7 +66,7 @@ if [ -d "docs" ]; then
         # Update "**Pipeline Version**: vX.X.X" patterns
         sed -i "s/\*\*Pipeline Version\*\*: v[0-9.]*/\*\*Pipeline Version\*\*: v${VERSION_CLEAN}/g" "$file"
     done
-    
+
     # Update pipeline version in LaTeX files
     find docs -name "*.tex" -type f | while read -r file; do
         # Update "Pipeline version: vX.X.X" patterns
@@ -74,7 +74,7 @@ if [ -d "docs" ]; then
         # Update "\textbf{Pipeline Version}: vX.X.X" patterns
         sed -i "s/\\\\textbf{Pipeline Version}: v[0-9.]*/\\\\textbf{Pipeline Version}: v${VERSION_CLEAN}/g" "$file"
     done
-    
+
     echo "✓ Updated documentation files"
 fi
 
