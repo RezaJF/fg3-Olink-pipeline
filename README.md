@@ -8,7 +8,7 @@
 
 **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
 
-**Reviewer**: Mitja Kurki, PhD (mkurki@broadinstitute.org)
+
 
 ## Overview
 
@@ -20,7 +20,7 @@ A comprehensive, Docker-ready R pipeline for analysing Olink Explore HT (5K) pro
 - **QC Machine Components**: Technical Outlier Check [PCA → Technical → Z-score] → Sample Provenance Check[Sex Outliers → pQTL-based Outliers]
 - **Fully Configurable**: All paths and parameters configured via YAML config file
 - **Docker-Ready**: Complete Docker setup with automated builds
-- **Multi-Batch Support**: Process and harmonise multiple batches with flexible normalization (bridge → ComBat → median fallback)
+- **Multi-Batch Support**: Process and harmonise multiple batches with flexible normalisation (bridge → ComBat → median fallback)
 - **Metadata Flexibility**: Handles missing metadata columns gracefully (DISEASE_GROUP, timestamp columns optional)
 - **Comprehensive QC Reporting**: Integrated outlier tracking with detailed metrics and annotations
 
@@ -228,7 +228,7 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - Optional: Bridging sample information
 - **Initial QC**:
   - **Control Aptamer Removal**: Removes 24 technical control aptamers (8 Incubation controls, 8 Extension controls, 8 Amplification controls) immediately after loading the NPX matrix
-    - **Rationale**: Technical controls are not biological proteins and should be removed early for robustness. This ensures consistent protein counts across batches (5,416 biological proteins) and prevents dimension mismatches in cross-batch normalization.
+    - **Rationale**: Technical controls are not biological proteins and should be removed early for robustness. This ensures consistent protein counts across batches (5,416 biological proteins) and prevents dimension mismatches in cross-batch normalisation.
     - **Expected Results**: Reduces protein count from 5,440 to 5,416 biological proteins
     - **Note**: Control aptamers are removed before any QC steps, ensuring all downstream analyses operate on biological proteins only
   - **Missing Rate Filtering**: Removes samples with >10% missing data (`max_missing_per_sample: 0.10`)
@@ -450,11 +450,11 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - **Expected Performance**: Typically achieves ~9.7% SD reduction
 
   **Multi-Batch Mode**:
-  - **Normalization Strategy**: For each batch, the pipeline attempts **cross-batch normalization first** (preferred for harmonization), then falls back to **intra-batch normalization** if cross-batch methods fail
+  - **Normalisation Strategy**: For each batch, the pipeline attempts **cross-batch normalisation first** (preferred for harmonisation), then falls back to **intra-batch normalisation** if cross-batch methods fail
   - **Primary Method**: **Bridge Normalisation** (cross-batch harmonisation, preferred)
     - Uses bridge samples from both batches to calculate combined reference medians
     - Harmonises protein expression levels across batches
-    - Requires ≥10 bridge samples for successful normalization
+    - Requires ≥10 bridge samples for successful normalisation
     - Uses bridge samples shared between batches (same FINNGENIDs, different SampleIDs)
   - **Fallback Chain**: If bridge normalisation fails (insufficient bridge samples <10), the pipeline automatically falls back to:
     1. **ComBat**: Cross-batch batch correction (requires multiple batches; may fail if only one batch available)
@@ -463,14 +463,14 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
     - **ComBat**: Batch correction using empirical Bayes framework
     - **Median**: Standard intra-batch normalisation (for comparison)
   - **Expected Performance**: Bridge normalisation achieves cross-batch harmonisation while preserving biological variation
-  - **Note**: Bridge and ComBat normalization are **ONLY applicable in multi-batch mode** - the pipeline enforces this with explicit guards
+  - **Note**: Bridge and ComBat normalisation are **ONLY applicable in multi-batch mode** - the pipeline enforces this with explicit guards
 
 - **Evaluation**: SD, MAD, and IQR reduction (CV not meaningful for log-transformed NPX data)
 - **Output**:
-  - `06_npx_matrix_normalized.rds`: Normalised NPX matrix (primary method)
-  - `06_normalization_evaluations.tsv`: Evaluation statistics (SD, MAD, IQR before/after)
-  - `06_normalization_effect_*.pdf`: Visualisation plots
-  - Multi-batch mode also saves: `06_npx_matrix_normalized_combat.rds`, `06_npx_matrix_normalized_median.rds` (for comparison)
+  - `06_npx_matrix_normalised.rds`: Normalised NPX matrix (primary method)
+  - `06_normalisation_evaluations.tsv`: Evaluation statistics (SD, MAD, IQR before/after)
+  - `06_normalisation_effect_*.pdf`: Visualisation plots
+  - Multi-batch mode also saves: `06_npx_matrix_normalised_combat.rds`, `06_npx_matrix_normalised_median.rds` (for comparison)
 
 #### 07_bridge_normalization.R (Optional - Multi-Batch Only)
 - **Purpose**: Enhanced bridge sample normalisation for multi-batch integration
@@ -721,7 +721,7 @@ output/
 │   └── batch_XX/
 ├── outliers/              # Outlier detection results
 │   └── batch_XX/
-├── normalized/            # Normalised matrices
+├── normalised/            # Normalised matrices
 │   └── batch_XX/
 ├── phenotypes/            # Analysis-ready phenotypes
 │   └── batch_XX/
@@ -817,7 +817,7 @@ The pipeline supports processing and harmonising multiple batches of proteomics 
 
 Multi-batch mode enables:
 - **Sequential Processing**: Reference batch is processed first, then other batches use QCed reference data
-- **Bridge Normalization**: Uses shared bridge samples to harmonise protein levels across batches
+- **Bridge Normalisation**: Uses shared bridge samples to harmonise protein levels across batches
 - **Aggregated Outputs**: Optional aggregation of final phenotype matrices from all batches
 
 ### Configuration
@@ -854,7 +854,7 @@ batches:
 
 #### Step 2: Enable Multi-Batch Mode
 
-Set `multi_batch_mode: true` in the normalization section:
+Set `multi_batch_mode: true` in the normalisation section:
 
 ```yaml
 parameters:
@@ -862,12 +862,12 @@ parameters:
     method: "bridge_normalization"  # Required for multi-batch mode
     reference_batch: "batch_02"  # Reference batch ID (must match a batch_id above)
     multi_batch_mode: true  # Enable multi-batch processing
-    run_enhanced_bridge: false  # Optional: Enhanced bridge normalization (Step 07)
+    run_enhanced_bridge: false  # Optional: Enhanced bridge normalisation (Step 07)
 ```
 
 **Reference Batch Selection:**
 - The reference batch is processed first through all independent steps (00-05, 08, 09-11)
-- Other batches use QCed data from the reference batch for normalization
+- Other batches use QCed data from the reference batch for normalisation
 - Choose the batch with the highest quality or most complete data as reference
 - The `reference_batch` must match one of the `batch_id` values in the `batches` section
 
@@ -918,7 +918,7 @@ docker-compose run fg3-olink-pipeline
 **Processing Order:**
 1. **Phase 1**: Reference batch processed through all independent steps (00-05, 08, 09-11)
 2. **Phase 2**: Other batches processed through independent steps (using QCed reference data)
-3. **Phase 3**: Cross-batch normalization (Step 06) - harmonises batches using bridge samples
+3. **Phase 3**: Cross-batch normalisation (Step 06) - harmonises batches using bridge samples
 4. **Phase 4**: Optional aggregation (Steps 09-11) - combines final outputs
 
 #### Method 2: Manual Batch Processing
@@ -935,7 +935,7 @@ Rscript scripts/run_pipeline.R --config config/config.yaml --batch batch_02 --st
 
 ### Output Structure
 
-In multi-batch mode, outputs are organized by batch:
+In multi-batch mode, outputs are organised by batch:
 
 ```
 output/
@@ -975,10 +975,10 @@ output/
 
 Bridge samples are shared across batches and are essential for cross-batch harmonisation:
 
-- **Purpose**: Enable normalization between batches by providing common reference points
+- **Purpose**: Enable normalisation between batches by providing common reference points
 - **Location**: Included in each batch's NPX matrix and metadata
 - **Identification**: Bridge samples are automatically identified from metadata or bridging sample files
-- **Usage**: Used in Step 06 (Bridge Normalization) to harmonise protein levels across batches
+- **Usage**: Used in Step 06 (Bridge Normalisation) to harmonise protein levels across batches
 
 **Expected Results:**
 - Typically 96%+ of bridge samples have genetic sex information recovered
@@ -1084,7 +1084,7 @@ BREAKING CHANGE: Step numbers changed from 07a/07b to 05a/05b"
 ```
 
 When you push to `main` or `master`, the release workflow will:
-1. Analyze commits and calculate the next version
+1. Analyse commits and calculate the next version
 2. Update version in `VERSION`, `Dockerfile`, and `README.md`
 3. Generate `CHANGELOG.md` automatically
 4. Create a Git tag and GitHub Release
@@ -1113,4 +1113,6 @@ This pipeline and associated documentation files (the "Pipeline") are provided f
 ## Contact
 
 For questions or issues, please contact:
-- **Reza Jabal, PhD**: rjabal@broadinstitute.org
+- **Reza Jabal, PhD; (Author)**: rjabal@broadinstitute.org
+
+- **Mitja Kurki, PhD (Reviewer)** (mkurki@broadinstitute.org)
