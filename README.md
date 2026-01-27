@@ -42,48 +42,48 @@ After comprehensive quality control including PCA outlier detection, technical o
 
 ```mermaid
 flowchart TD
-    Start([Start]) --> Loader[00_data_loader.R<br/>Load NPX matrix<br/>Remove control aptamers (24)<br/>Initial QC: Remove >10% missing<br/>Prepare analysis-ready data]
+    Start([Start]) --> Loader["00_data_loader.R: Load NPX matrix, Remove control aptamers (24), Initial QC: Remove >10% missing, Prepare analysis-ready data"]
 
-    Loader --> BaseMatrix[Base Matrix<br/>npx_matrix_analysis_ready<br/>2,522 samples × 5,416 proteins<br/>After initial QC]
+    Loader --> BaseMatrix["Base Matrix: npx_matrix_analysis_ready, 2,522 samples × 5,416 proteins, After initial QC"]
 
-    BaseMatrix --> PCA[01_pca_outliers.R<br/>PCA analysis<br/>Remove constant proteins<br/>SD & IQR outlier detection<br/>Uses: base matrix]
+    BaseMatrix --> PCA["01_pca_outliers.R: PCA analysis, Remove constant proteins, SD & IQR outlier detection, Uses: base matrix"]
 
-    BaseMatrix --> Technical[02_technical_outliers.R<br/>Plate/batch/processing outliers<br/>Sample-level QC<br/>Uses: base matrix<br/>Parallel flagging]
+    BaseMatrix --> Technical["02_technical_outliers.R: Plate/batch/processing outliers, Sample-level QC, Uses: base matrix, Parallel flagging"]
 
-    BaseMatrix --> Zscore[03_zscore_outliers.R<br/>Z-score outliers<br/>Iterative detection<br/>Uses: base matrix<br/>Parallel flagging]
+    BaseMatrix --> Zscore["03_zscore_outliers.R: Z-score outliers, Iterative detection, Uses: base matrix, Parallel flagging"]
 
-    PCA --> Sex[04_sex_outliers.R<br/>Sex mismatch detection<br/>Protein & genetic evidence<br/>Uses: PCA-cleaned matrix]
+    PCA --> Sex["04_sex_outliers.R: Sex mismatch detection, Protein & genetic evidence, Uses: PCA-cleaned matrix"]
 
-    Sex --> PqtlTrain{05a_pqtl_training.R<br/>Optional: pQTL training<br/>Can be disabled}
+    Sex --> PqtlTrain{"05a_pqtl_training.R: Optional pQTL training, Can be disabled"}
 
-    PqtlTrain -->|Enabled| PqtlTrainRun[pQTL Training<br/>Consensus selection]
+    PqtlTrain -->|Enabled| PqtlTrainRun["pQTL Training: Consensus selection"]
     PqtlTrain -->|Disabled| PqtlOutliers
 
-    PqtlTrainRun --> PqtlOutliers[05b_pqtl_outliers.R<br/>pQTL-based outlier detection<br/>MeanAbsZ assignment]
+    PqtlTrainRun --> PqtlOutliers["05b_pqtl_outliers.R: pQTL-based outlier detection, MeanAbsZ assignment"]
 
-    PqtlOutliers --> Provenance{05c_provenance_test.R<br/>Optional: Provenance test<br/>Can be disabled}
+    PqtlOutliers --> Provenance{"05c_provenance_test.R: Optional Provenance test, Can be disabled"}
 
-    Provenance -->|Enabled| ProvenanceRun[Provenance Test]
+    Provenance -->|Enabled| ProvenanceRun["Provenance Test"]
     Provenance -->|Disabled| QCReport
 
-    ProvenanceRun --> QCReport[05d_qc_comprehensive_report.R<br/>Comprehensive QC report<br/>Integrated outlier tracking]
+    ProvenanceRun --> QCReport["05d_qc_comprehensive_report.R: Comprehensive QC report, Integrated outlier tracking"]
 
-    QCReport --> Normalize[06_normalize_data.R<br/>Median normalisation<br/>Standard intra-batch step]
+    QCReport --> Normalize["06_normalize_data.R: Median normalisation, Standard intra-batch step"]
 
-    Normalize --> BridgeNorm{07_bridge_normalization.R<br/>Optional: Multi-batch only<br/>Enhanced bridge methods<br/>Not used in single-batch}
+    Normalize --> BridgeNorm{"07_bridge_normalization.R: Optional Multi-batch only, Enhanced bridge methods, Not used in single-batch"}
 
-    BridgeNorm -->|Enabled| BridgeNormRun[Enhanced Bridge<br/>Quantile normalisation]
+    BridgeNorm -->|Enabled| BridgeNormRun["Enhanced Bridge: Quantile normalisation"]
     BridgeNorm -->|Disabled| Covariate
 
-    BridgeNormRun --> Covariate[08_covariate_adjustment.R<br/>Adjust for covariates<br/>Default: age/sex - configurable<br/>Proteomic PCs excluded]
+    BridgeNormRun --> Covariate["08_covariate_adjustment.R: Adjust for covariates, Default: age/sex - configurable, Proteomic PCs excluded"]
 
-    Covariate --> Phenotype[09_prepare_phenotypes.R<br/>Combine QC results<br/>Create phenotype matrix]
+    Covariate --> Phenotype["09_prepare_phenotypes.R: Combine QC results, Create phenotype matrix"]
 
-    Phenotype --> Kinship[10_kinship_filtering.R<br/>Remove related individuals<br/>3rd degree threshold]
+    Phenotype --> Kinship["10_kinship_filtering.R: Remove related individuals, 3rd degree threshold"]
 
-    Kinship --> Rank[11_rank_normalize.R<br/>Inverse rank normalisation<br/>PLINK format output]
+    Kinship --> Rank["11_rank_normalize.R: Inverse rank normalisation, PLINK format output"]
 
-    Rank --> Output([Analysis Ready<br/>Phenotypes])
+    Rank --> Output(["Analysis Ready Phenotypes"])
 
     style Start fill:#e1f5e1
     style Output fill:#ffe1e1
@@ -107,63 +107,63 @@ flowchart TD
 
 ```mermaid
 flowchart TD
-    Start([Multi-Batch Mode Start]) --> RefBatch[Reference Batch<br/>batch_02]
-    Start --> OtherBatch[Other Batches<br/>batch_01, ...]
+    Start([Multi-Batch Mode Start]) --> RefBatch["Reference Batch: batch_02"]
+    Start --> OtherBatch["Other Batches: batch_01, ..."]
 
     %% Reference Batch Processing (Parallel Flagging)
-    RefBatch --> Ref00[00_data_loader.R<br/>Load NPX matrix<br/>Remove control aptamers (24)<br/>Initial QC: Remove >10% missing<br/>Prepare data]
-    Ref00 --> RefBase[Base Matrix<br/>npx_matrix_analysis_ready]
-    RefBase --> Ref01[01_pca_outliers.R<br/>PCA outlier detection<br/>Uses: base matrix]
-    RefBase --> Ref02[02_technical_outliers.R<br/>Technical outlier detection<br/>Uses: base matrix<br/>Parallel flagging]
-    RefBase --> Ref03[03_zscore_outliers.R<br/>Z-score outlier detection<br/>Uses: base matrix<br/>Parallel flagging]
-    Ref01 --> Ref04[04_sex_outliers.R<br/>Sex mismatch detection<br/>Uses: PCA-cleaned matrix]
-    Ref04 --> Ref05a{05a_pqtl_training.R<br/>Optional: pQTL training}
-    Ref05a -->|Enabled| Ref05aRun[pQTL Training]
+    RefBatch --> Ref00["00_data_loader.R: Load NPX matrix, Remove control aptamers (24), Initial QC: Remove >10% missing, Prepare data"]
+    Ref00 --> RefBase["Base Matrix: npx_matrix_analysis_ready"]
+    RefBase --> Ref01["01_pca_outliers.R: PCA outlier detection, Uses: base matrix"]
+    RefBase --> Ref02["02_technical_outliers.R: Technical outlier detection, Uses: base matrix, Parallel flagging"]
+    RefBase --> Ref03["03_zscore_outliers.R: Z-score outlier detection, Uses: base matrix, Parallel flagging"]
+    Ref01 --> Ref04["04_sex_outliers.R: Sex mismatch detection, Uses: PCA-cleaned matrix"]
+    Ref04 --> Ref05a{"05a_pqtl_training.R: Optional pQTL training"}
+    Ref05a -->|Enabled| Ref05aRun["pQTL Training"]
     Ref05a -->|Disabled| Ref05
-    Ref05aRun --> Ref05[05b_pqtl_outliers.R<br/>pQTL-based outlier detection]
-    Ref05 --> Ref05c{05c_provenance_test.R<br/>Optional: Provenance test}
-    Ref05c -->|Enabled| Ref05cRun[Provenance Test]
+    Ref05aRun --> Ref05["05b_pqtl_outliers.R: pQTL-based outlier detection"]
+    Ref05 --> Ref05c{"05c_provenance_test.R: Optional Provenance test"}
+    Ref05c -->|Enabled| Ref05cRun["Provenance Test"]
     Ref05c -->|Disabled| Ref05d
-    Ref05cRun --> Ref05d[05d_qc_comprehensive_report.R<br/>Comprehensive QC report]
-    Ref05d --> Ref06[06_normalize_data.R<br/>Median normalisation<br/>Standard intra-batch step]
-    Ref06 --> Ref07[07_bridge_normalization.R<br/>Enhanced bridge normalisation]
-    Ref07 --> Ref08[08_covariate_adjustment.R<br/>Covariate adjustment]
-    Ref08 --> Ref09[09_prepare_phenotypes.R<br/>Prepare phenotypes]
-    Ref09 --> Ref10[10_kinship_filtering.R<br/>Remove related individuals]
-    Ref10 --> Ref11[11_rank_normalize.R<br/>Rank normalisation]
-    Ref11 --> RefComplete([Reference Batch<br/>Complete])
+    Ref05cRun --> Ref05d["05d_qc_comprehensive_report.R: Comprehensive QC report"]
+    Ref05d --> Ref06["06_normalize_data.R: Median normalisation, Standard intra-batch step"]
+    Ref06 --> Ref07["07_bridge_normalization.R: Enhanced bridge normalisation"]
+    Ref07 --> Ref08["08_covariate_adjustment.R: Covariate adjustment"]
+    Ref08 --> Ref09["09_prepare_phenotypes.R: Prepare phenotypes"]
+    Ref09 --> Ref10["10_kinship_filtering.R: Remove related individuals"]
+    Ref10 --> Ref11["11_rank_normalize.R: Rank normalisation"]
+    Ref11 --> RefComplete(["Reference Batch Complete"])
 
     %% Other Batch Processing (Parallel Flagging)
-    OtherBatch --> Other00[00_data_loader.R<br/>Load NPX matrix<br/>Remove control aptamers (24)<br/>Initial QC: Remove >10% missing<br/>Prepare data]
-    Other00 --> OtherBase[Base Matrix<br/>npx_matrix_analysis_ready]
-    OtherBase --> Other01[01_pca_outliers.R<br/>PCA outlier detection<br/>Uses: base matrix]
-    OtherBase --> Other02[02_technical_outliers.R<br/>Technical outlier detection<br/>Uses: base matrix<br/>Parallel flagging]
-    OtherBase --> Other03[03_zscore_outliers.R<br/>Z-score outlier detection<br/>Uses: base matrix<br/>Parallel flagging]
-    Other01 --> Other04[04_sex_outliers.R<br/>Sex mismatch detection<br/>Uses: PCA-cleaned matrix]
-    Other04 --> Other05a{05a_pqtl_training.R<br/>Optional: pQTL training}
-    Other05a -->|Enabled| Other05aRun[pQTL Training]
+    OtherBatch --> Other00["00_data_loader.R: Load NPX matrix, Remove control aptamers (24), Initial QC: Remove >10% missing, Prepare data"]
+    Other00 --> OtherBase["Base Matrix: npx_matrix_analysis_ready"]
+    OtherBase --> Other01["01_pca_outliers.R: PCA outlier detection, Uses: base matrix"]
+    OtherBase --> Other02["02_technical_outliers.R: Technical outlier detection, Uses: base matrix, Parallel flagging"]
+    OtherBase --> Other03["03_zscore_outliers.R: Z-score outlier detection, Uses: base matrix, Parallel flagging"]
+    Other01 --> Other04["04_sex_outliers.R: Sex mismatch detection, Uses: PCA-cleaned matrix"]
+    Other04 --> Other05a{"05a_pqtl_training.R: Optional pQTL training"}
+    Other05a -->|Enabled| Other05aRun["pQTL Training"]
     Other05a -->|Disabled| Other05
-    Other05aRun --> Other05[05b_pqtl_outliers.R<br/>pQTL-based outlier detection]
-    Other05 --> Other05c{05c_provenance_test.R<br/>Optional: Provenance test}
-    Other05c -->|Enabled| Other05cRun[Provenance Test]
+    Other05aRun --> Other05["05b_pqtl_outliers.R: pQTL-based outlier detection"]
+    Other05 --> Other05c{"05c_provenance_test.R: Optional Provenance test"}
+    Other05c -->|Enabled| Other05cRun["Provenance Test"]
     Other05c -->|Disabled| Other05d
-    Other05cRun --> Other05d[05d_qc_comprehensive_report.R<br/>Comprehensive QC report]
-    Other05d --> Other06[06_normalize_data.R<br/>Multi-batch normalisation<br/>Primary: Bridge normalisation<br/>Comparison: ComBat & Median<br/>Uses: Bridge samples from both batches]
-    Other06 --> Other07[07_bridge_normalization.R<br/>Enhanced bridge normalisation<br/>Uses: QCed data from both batches]
-    Other07 --> Other08[08_covariate_adjustment.R<br/>Covariate adjustment]
-    Other08 --> Other09[09_prepare_phenotypes.R<br/>Prepare phenotypes]
-    Other09 --> Other10[10_kinship_filtering.R<br/>Remove related individuals]
-    Other10 --> Other11[11_rank_normalize.R<br/>Rank normalisation]
-    Other11 --> OtherComplete([Other Batch<br/>Complete])
+    Other05cRun --> Other05d["05d_qc_comprehensive_report.R: Comprehensive QC report"]
+    Other05d --> Other06["06_normalize_data.R: Multi-batch normalisation, Primary: Bridge normalisation, Comparison: ComBat & Median, Uses: Bridge samples from both batches"]
+    Other06 --> Other07["07_bridge_normalization.R: Enhanced bridge normalisation, Uses: QCed data from both batches"]
+    Other07 --> Other08["08_covariate_adjustment.R: Covariate adjustment"]
+    Other08 --> Other09["09_prepare_phenotypes.R: Prepare phenotypes"]
+    Other09 --> Other10["10_kinship_filtering.R: Remove related individuals"]
+    Other10 --> Other11["11_rank_normalize.R: Rank normalisation"]
+    Other11 --> OtherComplete(["Other Batch Complete"])
 
     %% Aggregation (Optional)
-    RefComplete --> AggCheck{Aggregation<br/>Enabled?}
+    RefComplete --> AggCheck{"Aggregation Enabled?"}
     OtherComplete --> AggCheck
-    AggCheck -->|Yes| Agg09[09_prepare_phenotypes.R<br/>Aggregate: Merge matrices<br/>Common proteins only]
-    AggCheck -->|No| BatchOutput([Batch-Specific<br/>Outputs])
-    Agg09 --> Agg10[10_kinship_filtering.R<br/>Filter related from aggregate]
-    Agg10 --> Agg11[11_rank_normalize.R<br/>Rank normalise aggregate]
-    Agg11 --> AggregateOutput([Aggregate<br/>Output])
+    AggCheck -->|Yes| Agg09["09_prepare_phenotypes.R: Aggregate: Merge matrices, Common proteins only"]
+    AggCheck -->|No| BatchOutput(["Batch-Specific Outputs"])
+    Agg09 --> Agg10["10_kinship_filtering.R: Filter related from aggregate"]
+    Agg10 --> Agg11["11_rank_normalize.R: Rank normalise aggregate"]
+    Agg11 --> AggregateOutput(["Aggregate Output"])
 
     %% Styling
     style Start fill:#e1f5e1
