@@ -440,47 +440,60 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
 ### Phase 3: Normalisation
 
 #### 06_normalize_data.R
-- **Purpose**: Normalise proteomics data to remove technical variability and ensure sample comparability
-- **Mode-Dependent Behaviour**:
-
-  **Single-Batch Mode**:
-  - **Primary Method**: **Median Normalisation** (standard intra-batch step)
-  - **Rationale**: Median normalisation ensures samples are comparable within a single batch before performing statistical tests. This is a standard preprocessing step for proteomics data.
-  - **Note**: Bridge normalisation and ComBat are **not applicable** in single-batch mode (they require multiple batches)
+- **Purpose**: Normalise proteomics data to remove technical variability and ensure sample comparability **within a single batch**
+- **CRITICAL**: This step performs **EXCLUSIVELY within-batch median normalisation**, regardless of single-batch or multi-batch mode
+- **Method**: **Median Normalisation** (standard intra-batch step)
+  - **Rationale**: Median normalisation ensures samples are comparable within a batch before performing statistical tests. This is a standard preprocessing step for proteomics data.
+  - **Scope**: This step normalises each batch independently, ensuring samples within each batch are comparable
   - **Expected Performance**: Typically achieves ~9.7% SD reduction
-
-  **Multi-Batch Mode**:
-  - **Normalisation Strategy**: For each batch, the pipeline attempts **cross-batch normalisation first** (preferred for harmonisation), then falls back to **intra-batch normalisation** if cross-batch methods fail
-  - **Primary Method**: **Bridge Normalisation** (cross-batch harmonisation, preferred)
-    - Uses bridge samples from both batches to calculate combined reference medians
-    - Harmonises protein expression levels across batches
-    - Requires ≥10 bridge samples for successful normalisation
-    - Uses bridge samples shared between batches (same FINNGENIDs, different SampleIDs)
-  - **Fallback Chain**: If bridge normalisation fails (insufficient bridge samples <10), the pipeline automatically falls back to:
-    1. **ComBat**: Cross-batch batch correction (requires multiple batches; may fail if only one batch available)
-    2. **Median**: Standard intra-batch normalisation (final fallback, always succeeds)
-  - **Comparison Methods** (generated for evaluation when available):
-    - **ComBat**: Batch correction using empirical Bayes framework
-    - **Median**: Standard intra-batch normalisation (for comparison)
-  - **Expected Performance**: Bridge normalisation achieves cross-batch harmonisation while preserving biological variation
-  - **Note**: Bridge and ComBat normalisation are **ONLY applicable in multi-batch mode** - the pipeline enforces this with explicit guards
-
+- **Note**: **Cross-batch normalisation** (bridge, ComBat) is **NOT** performed in this step. These methods are handled in **step 07** (`07_bridge_normalization.R`) for cross-batch harmonisation
 - **Evaluation**: SD, MAD, and IQR reduction (CV not meaningful for log-transformed NPX data)
 - **Output**:
-  - `06_npx_matrix_normalised.rds`: Normalised NPX matrix (primary method)
+  - `06_npx_matrix_normalised.rds`: Within-batch median normalised NPX matrix
   - `06_normalisation_evaluations.tsv`: Evaluation statistics (SD, MAD, IQR before/after)
-  - `06_normalisation_effect_*.pdf`: Visualisation plots
-  - Multi-batch mode also saves: `06_npx_matrix_normalised_combat.rds`, `06_npx_matrix_normalised_median.rds` (for comparison)
+  - `06_normalisation_effect_median.pdf`: Visualisation plot for median normalisation
 
 #### 07_bridge_normalization.R (Optional - Multi-Batch Only)
-- **Purpose**: Enhanced bridge sample normalisation for multi-batch integration
-- **When to run**: Only when integrating multiple batches (e.g., FG2 + FG3)
+- **Purpose**: **Cross-batch normalisation** for multi-batch integration and harmonisation
+- **When to run**: Only when integrating multiple batches (e.g., batch_01 + batch_02)
+- **CRITICAL**: This step handles **ALL cross-batch normalisation methods** (bridge, ComBat). Step 06 performs only within-batch normalisation
+- **Important**: NPX values are already log2-transformed. This step uses **additive adjustment** (not multiplicative scaling):
+  ```
+  offset = batch_bridge_median - reference_median  (per protein)
+  NPX_adjusted = NPX - offset  (shifts distribution to align with reference)
+  ```
 - **Methods**:
-  - **Median method**: Quality-filtered bridge samples
-  - **Quantile method**: Aligns entire distributions
-- **Output**:
-  - `07_npx_matrix_bridge_enhanced.rds`: Enhanced median normalised
-  - `07_npx_matrix_bridge_quantile.rds`: Quantile normalised
+  - **Bridge Normalisation** (preferred for cross-batch harmonisation):
+    - Uses bridge samples from both batches to calculate combined reference medians
+    - Calculates per-protein **additive offsets** (batch median - combined reference median)
+    - Applies offset subtraction to shift distributions to a common reference
+    - Requires ≥10 bridge samples for successful normalisation
+    - Uses bridge samples shared between batches (same FINNGENIDs, different SampleIDs)
+  - **ComBat Normalisation** (alternative cross-batch method):
+    - Batch correction using empirical Bayes framework
+    - Requires multiple batches to function properly
+  - **Quantile Normalisation** (alternative method):
+    - Aligns entire distributions across batches
+- **Fallback Strategy**: If bridge normalisation fails (insufficient bridge samples <10), the pipeline may fall back to ComBat or quantile methods
+- **Evaluation**: Cross-batch comparison metrics, calibration evaluation, and visualisation plots
+- **Output** (per-batch cross-batch normalised matrices):
+  - `07_npx_matrix_cross_batch_bridge_{batch}.rds`: Cross-batch bridge normalised matrix (one per batch)
+  - `07_npx_matrix_cross_batch_median_{batch}.rds`: Cross-batch median normalised matrix (comparison)
+  - `07_npx_matrix_cross_batch_combat_{batch}.rds`: Cross-batch ComBat normalised matrix (comparison)
+  - `07_cross_batch_normalization_result_{batch}.rds`: Combined result object with both batches + metadata
+  - `07_normalization_evaluations_{batch}.tsv`: Evaluation statistics (SD, MAD, IQR reduction)
+- **Visualisation Outputs**:
+  - `07_pca_pc1_pc2_before_after_comparison_*.pdf`: Side-by-side PC1 vs PC2 (before/after normalisation)
+  - `07_pca_pc3_pc4_before_after_comparison_*.pdf`: Side-by-side PC3 vs PC4 (before/after normalisation)
+  - `07_pca_batch_comparison_full_*.pdf`: Full PCA comparison (PC1-2 and PC3-4)
+  - `07_bridge_samples_scatter_*.pdf`: Bridge sample scatter plots with correlation (Batch 1 vs Batch 2)
+  - `07_bridge_samples_paired_boxplot_*.pdf`: Paired boxplot showing harmonisation effectiveness:
+    - Panel A: NPX distribution by batch before/after normalisation
+    - Panel B: Paired line plot connecting same FINNGENID across batches
+    - Panel C: Distribution of absolute batch differences (reduction metric)
+  - `07_normalization_effect_bridge_*.pdf`: Bridge normalisation effect (histogram+density+violin with t-test)
+  - `07_normalization_effect_median_*.pdf`: Median normalisation effect (histogram+density+violin with t-test)
+  - `07_normalization_effect_combat_*.pdf`: ComBat normalisation effect (histogram+density+violin with t-test)
 
 #### 08_covariate_adjustment.R
 - **Purpose**: Adjust for biological covariates using linear regression
@@ -576,6 +589,139 @@ Final (pre-normalisation): 2,443 samples (96.68% of 2,527 analysis-ready)
 - Unique outliers flagged: 84 (3.23% of 2,600 raw, 3.32% of 2,527 analysis-ready)
 
 **Retention rate**: 96.68% (2,443/2,527 analysis-ready samples) or 94.69% (2,443/2,580 biological samples)
+
+## Matrix Flow: Steps 05d → 11
+
+This section details the matrix flow from QC completion through final phenotype preparation, covering all execution modes.
+
+### Step-by-Step Matrix Flow Summary
+
+| Step | Input | Output | Purpose |
+|------|-------|--------|---------|
+| **05d** | `01_npx_matrix_pca_cleaned` + outlier flags | `05d_npx_matrix_all_qc_passed` | Final QCed matrix (all outliers removed) |
+| **06** | `05d_npx_matrix_all_qc_passed` | `06_npx_matrix_normalized` | Within-batch median normalisation |
+| **07** | `05d_npx_matrix_all_qc_passed` (both batches) | `07_npx_matrix_cross_batch_bridge_{batch}` | Cross-batch bridge normalisation (multi-batch only) |
+| **08** | `06_npx_matrix_normalized` or `07_npx_matrix_cross_batch_bridge` | `08_npx_matrix_covariate_adjusted` | Age/sex/BMI/smoking adjustment |
+| **09** | `08_npx_matrix_covariate_adjusted` | `09_phenotype_matrix_finngenid` | Outlier removal, FINNGENID indexing |
+| **10** | `09_phenotype_matrix_finngenid` | `10_phenotype_matrix_finngenid_unrelated` | Kinship filtering, remove related individuals |
+| **11** | `10_phenotype_matrix_finngenid_unrelated` | `11_phenotype_matrix_finngenid_rint` | Inverse rank normalisation, PLINK format |
+
+### Single-Batch Mode Flow
+
+```
+Step 05d: QC Comprehensive Report
+├── Input:  01_npx_matrix_pca_cleaned + outlier flags (Steps 01-05b)
+├── Output: 05d_npx_matrix_all_qc_passed_{batch}.rds
+└── Samples: ~2,443 (from 2,522 analysis-ready)
+         │
+         ▼
+Step 06: Within-Batch Median Normalisation
+├── Input:  05d_npx_matrix_all_qc_passed_{batch}.rds
+├── Output: 06_npx_matrix_normalized_{batch}.rds
+└── Purpose: Remove within-batch technical variability
+         │
+         ▼
+[Step 07: SKIPPED in single-batch mode]
+         │
+         ▼
+Step 08: Covariate Adjustment
+├── Input:  06_npx_matrix_normalized_{batch}.rds
+├── Output: 08_npx_matrix_covariate_adjusted_{batch}.rds
+└── Covariates: Age, Sex (default), optionally BMI, Smoking
+         │
+         ▼
+Step 09: Phenotype Preparation
+├── Input:  08_npx_matrix_covariate_adjusted_{batch}.rds
+├── Output: 09_phenotype_matrix_finngenid_{batch}.rds
+└── Process: Remove non-FinnGen samples, convert to FINNGENID
+         │
+         ▼
+Step 10: Kinship Filtering
+├── Input:  09_phenotype_matrix_finngenid_{batch}.rds
+├── Output: 10_phenotype_matrix_finngenid_unrelated_{batch}.rds
+└── Method: Remove related individuals (kinship > 0.0884)
+         │
+         ▼
+Step 11: Rank Normalisation
+├── Input:  10_phenotype_matrix_finngenid_unrelated_{batch}.rds
+├── Output: 11_phenotype_matrix_finngenid_rint_{batch}.rds
+│           11_*_{batch}.pheno (PLINK format)
+└── Method: Inverse rank normalisation (per protein)
+```
+
+### Multi-Batch Mode Flow (Aggregation Enabled)
+
+```
+Phase 1-2: QC Steps 00-05d run per-batch
+           Each batch produces 05d_npx_matrix_all_qc_passed_{batch}.rds
+         │
+         ▼
+Phase 3: Cross-Batch Normalisation (Step 07)
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Step 07: Bridge Sample Normalisation (runs ONCE for all batches)           │
+├────────────────────────────────────────────────────────────────────────────┤
+│ Input:  05d_npx_matrix_all_qc_passed_batch_01.rds                          │
+│         05d_npx_matrix_all_qc_passed_batch_02.rds                          │
+│         00_sample_mapping_{batch}.tsv (to identify bridge samples)         │
+│                                                                            │
+│ Process:                                                                   │
+│   1. Load QCed matrices from all batches                                   │
+│   2. Identify common bridge samples (24 FINNGENIDs in both batches)        │
+│   3. Find common proteins across batches (5,416 proteins)                  │
+│   4. Calculate per-protein medians from bridge samples                     │
+│   5. Compute scaling factors and apply to ALL samples                      │
+│                                                                            │
+│ Output (per-batch cross-batch normalised matrices):                        │
+│   07_npx_matrix_cross_batch_bridge_batch_01.rds                            │
+│   07_npx_matrix_cross_batch_bridge_batch_02.rds                            │
+│   07_cross_batch_normalization_result_batch_01.rds (combined + metadata)   │
+│   07_normalization_evaluations_batch_01.tsv                                │
+│   07_pca_pc1_pc2_before_after_comparison_*.pdf (side-by-side)              │
+│   07_normalization_effect_{method}_*.pdf (histogram+density+violin)        │
+└────────────────────────────────────────────────────────────────────────────┘
+         │
+         ▼
+Phase 3.5: Per-Batch Steps 06, 08 (run for each batch)
+         │
+         ▼
+Phase 4: Steps 09-11 (per-batch + aggregation)
+┌────────────────────────────────────────────────────────────────────────────┐
+│ For each batch: batch_01, batch_02                                         │
+│   Step 09 → Step 10 → Step 11 (same as single-batch)                       │
+│                                                                            │
+│ AGGREGATION (when second batch completes):                                 │
+│   ├── Load both batch matrices                                             │
+│   ├── Find common proteins (5,416)                                         │
+│   ├── Find common FINNGENIDs (bridge samples: ~31)                         │
+│   ├── Use batch_02 data for common FINNGENIDs (reference batch)            │
+│   └── Merge: batch_01 + batch_02 = aggregate (3,714 samples)               │
+│                                                                            │
+│ Aggregate output: output/phenotypes/aggregate/                             │
+│   aggregate_phenotype_matrix_finngenid_unrelated.rds                       │
+│   aggregate_phenotype_matrix_rank_normalized.rds                           │
+│   aggregate_samples_unrelated.txt                                          │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Key Design Principles
+
+1. **Step 06 vs Step 07 Separation**:
+   - **Step 06**: Within-batch median normalisation (runs for ALL modes)
+   - **Step 07**: Cross-batch bridge normalisation (runs ONLY in multi-batch mode)
+   - Step 08 prefers Step 07 output if available, falls back to Step 06
+
+2. **Aggregation Timing**:
+   - Aggregation occurs in Phase 4 (Steps 09-11)
+   - Each step runs per-batch first, then aggregates when the second batch completes
+   - This ensures both batch outputs exist before merging
+
+3. **Bridge Sample Handling**:
+   - Bridge samples (FINNGENIDs in both batches) are included in per-batch processing
+   - During aggregation, batch_02 data is used for common FINNGENIDs (reference batch)
+
+4. **FINNGENID vs SampleID**:
+   - Steps 00-08: Use SampleID (original format)
+   - Steps 09-11: Convert to FINNGENID (required for GWAS)
 
 ## Protein QC
 

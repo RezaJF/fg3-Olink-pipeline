@@ -259,9 +259,9 @@ combine_outlier_lists_fallback <- function(batch_id, config) {
   ))
 }
 
-# Function to remove Andrea's samples
+# Function to remove non-FinnGen samples (samples without valid FINNGENID)
 remove_excluded_samples <- function(npx_matrix, excluded_samples) {
-  log_info("Removing excluded samples (Andrea's samples)")
+  log_info("Removing excluded samples (non-FinnGen samples)")
 
   # Get samples to exclude
   samples_to_remove <- intersect(rownames(npx_matrix), excluded_samples$SAMPLE_ID)
@@ -402,8 +402,11 @@ create_sample_lists <- function(phenotype_result, outlier_result) {
 }
 
 # Function to merge batch matrices on FINNGENID (common proteins only)
-merge_batch_matrices <- function(batch1_matrix, batch2_matrix, batch1_mapping, batch2_mapping) {
+# NOTE: Input matrices are expected to already have FINNGENIDs as rownames
+merge_batch_matrices <- function(batch1_matrix, batch2_matrix, batch1_mapping = NULL, batch2_mapping = NULL) {
   log_info("Merging batch matrices on FINNGENID")
+  log_info("  Batch 1 input: {nrow(batch1_matrix)} samples x {ncol(batch1_matrix)} proteins")
+  log_info("  Batch 2 input: {nrow(batch2_matrix)} samples x {ncol(batch2_matrix)} proteins")
 
   # Check protein consistency
   common_proteins <- intersect(colnames(batch1_matrix), colnames(batch2_matrix))
@@ -418,18 +421,14 @@ merge_batch_matrices <- function(batch1_matrix, batch2_matrix, batch1_mapping, b
   batch1_subset <- batch1_matrix[, common_proteins, drop = FALSE]
   batch2_subset <- batch2_matrix[, common_proteins, drop = FALSE]
 
-  # Get FINNGENIDs for each batch
-  batch1_finngenids <- batch1_mapping[SampleID %in% rownames(batch1_subset) & !is.na(FINNGENID)]
-  batch2_finngenids <- batch2_mapping[SampleID %in% rownames(batch2_subset) & !is.na(FINNGENID)]
+  # Matrices already have FINNGENIDs as rownames, so use them directly
+  batch1_finngen <- batch1_subset
+  batch2_finngen <- batch2_subset
 
-  # Set FINNGENID as rownames
-  batch1_finngen <- batch1_subset[batch1_finngenids$SampleID, , drop = FALSE]
-  rownames(batch1_finngen) <- batch1_finngenids$FINNGENID
+  log_info("  Batch 1 after protein subset: {nrow(batch1_finngen)} samples")
+  log_info("  Batch 2 after protein subset: {nrow(batch2_finngen)} samples")
 
-  batch2_finngen <- batch2_subset[batch2_finngenids$SampleID, , drop = FALSE]
-  rownames(batch2_finngen) <- batch2_finngenids$FINNGENID
-
-  # Find common FINNGENIDs (samples in both batches)
+  # Find common FINNGENIDs (samples in both batches - e.g., bridge samples)
   common_finngenids <- intersect(rownames(batch1_finngen), rownames(batch2_finngen))
   log_info("Common FINNGENIDs (samples in both batches): {length(common_finngenids)}")
 
@@ -438,6 +437,7 @@ merge_batch_matrices <- function(batch1_matrix, batch2_matrix, batch1_mapping, b
     log_warn("Using batch 2 data for common samples (batch 2 is reference)")
     # Remove common samples from batch 1 to avoid duplicates
     batch1_finngen <- batch1_finngen[!rownames(batch1_finngen) %in% common_finngenids, , drop = FALSE]
+    log_info("  Batch 1 after removing common: {nrow(batch1_finngen)} samples")
   }
 
   # Combine matrices
@@ -471,12 +471,12 @@ main <- function() {
   excluded_samples_path <- get_output_path("00", "excluded_samples", batch_id, "qc", config = config)
 
   if (!file.exists(npx_adjusted_path)) {
-    stop("Adjusted NPX matrix not found: {npx_adjusted_path}. Please run step 08 (covariate adjustment) first.")
+    stop(paste0("Adjusted NPX matrix not found: ", npx_adjusted_path, ". Please run step 08 (covariate adjustment) first."))
   }
   log_info("Using covariate-adjusted NPX matrix: {npx_adjusted_path}")
   log_info("  Note: Matrix adjusted for age, sex, BMI, smoking only (proteomic PCs preserved)")
   if (!file.exists(sample_mapping_path)) {
-    stop("Sample mapping not found: {sample_mapping_path}")
+    stop(paste0("Sample mapping not found: ", sample_mapping_path))
   }
 
   npx_adjusted <- readRDS(npx_adjusted_path)
@@ -517,7 +517,7 @@ main <- function() {
     log_warn("  {length(outliers_converted) - n_matched} outliers not found in matrix (may have been removed earlier)")
   }
 
-  # Remove Andrea's samples first
+  # Remove non-FinnGen samples first (samples without valid FINNGENID)
   npx_clean <- remove_excluded_samples(npx_adjusted, excluded_samples)
   log_info("After removing excluded samples: {nrow(npx_clean)} samples")
 
@@ -595,7 +595,7 @@ main <- function() {
 
   # Save summary
   summary_stats <- data.table(
-    stage = c("Original", "After excluding Andrea samples", "After removing outliers", "With FINNGENID"),
+    stage = c("Original", "After excluding non-FinnGen samples", "After removing outliers", "With FINNGENID"),
     n_samples = c(sample_lists$n_original, nrow(npx_clean),
                  sample_lists$n_after_qc, sample_lists$n_with_finngen)
   )
@@ -669,7 +669,7 @@ main <- function() {
   # Print summary
   cat("\n=== PHENOTYPE PREPARATION SUMMARY ===\n")
   cat("Original samples:", sample_lists$n_original, "\n")
-  cat("After excluding Andrea's samples:", nrow(npx_clean), "\n")
+  cat("After excluding non-FinnGen samples:", nrow(npx_clean), "\n")
   cat("Outliers removed:", length(outlier_result$all_outliers), "\n")
   # Report breakdown by source (if available)
   if (!is.null(outlier_result$outlier_sources)) {

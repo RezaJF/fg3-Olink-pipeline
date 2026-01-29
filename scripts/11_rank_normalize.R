@@ -301,7 +301,7 @@ main <- function() {
   finngenid_unrelated_path <- get_output_path("10", "phenotype_matrix_finngenid_unrelated", batch_id, "phenotypes", config = config)
 
   if (!file.exists(phenotype_unrelated_path)) {
-    stop("Unrelated phenotype matrix not found: {phenotype_unrelated_path}. Please run step 10 first.")
+    stop(paste0("Unrelated phenotype matrix not found: ", phenotype_unrelated_path, ". Please run step 10 first."))
   }
 
   phenotype_unrelated <- readRDS(phenotype_unrelated_path)
@@ -512,14 +512,23 @@ main <- function() {
 
         # Save aggregate outputs
         log_info("Saving aggregate rank-normalised outputs with 'aggregate_' prefix")
-        saveRDS(aggregate_rint,
-                )
-        fwrite(aggregate_plink,
-               ,
-               sep = "\t", na = "-9", quote = FALSE)
+        aggregate_dir <- file.path(config$output$base_dir %||% Sys.getenv("PIPELINE_OUTPUT_DIR", "output"),
+                                   "phenotypes", "aggregate")
+        dir.create(aggregate_dir, recursive = TRUE, showWarnings = FALSE)
+
+        aggregate_rint_path <- file.path(aggregate_dir, "aggregate_phenotype_matrix_rank_normalized.rds")
+        aggregate_plink_path <- file.path(aggregate_dir, "aggregate_phenotypes_rank_normalized_plink.txt")
+        aggregate_protein_index_path <- file.path(aggregate_dir, "aggregate_proteins_rank_normalized_index.txt")
+
+        saveRDS(aggregate_rint, aggregate_rint_path)
+        fwrite(aggregate_plink, aggregate_plink_path, sep = "\t", na = "-9", quote = FALSE)
         fwrite(data.table(protein = colnames(aggregate_rint), index = seq_len(ncol(aggregate_rint))),
-               ,
-               sep = "\t", col.names = FALSE, quote = FALSE)
+               aggregate_protein_index_path, sep = "\t", col.names = FALSE, quote = FALSE)
+
+        log_info("Saved aggregate rank-normalised outputs:")
+        log_info("  - Matrix: {aggregate_rint_path}")
+        log_info("  - PLINK format: {aggregate_plink_path}")
+        log_info("  - Protein index: {aggregate_protein_index_path}")
       } else {
         log_warn("Too few common proteins for aggregation")
       }

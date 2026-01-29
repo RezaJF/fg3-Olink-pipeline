@@ -606,7 +606,7 @@ main <- function() {
   finngenid_matrix_path <- get_output_path("09", "phenotype_matrix_finngenid", batch_id, "phenotypes", config = config)
 
   if (!file.exists(phenotype_matrix_path)) {
-    stop("Phenotype matrix not found: {phenotype_matrix_path}. Please run step 09 first.")
+    stop(paste0("Phenotype matrix not found: ", phenotype_matrix_path, ". Please run step 09 first."))
   }
 
   phenotype_matrix <- readRDS(phenotype_matrix_path)
@@ -889,7 +889,9 @@ main <- function() {
     )
   )
 
-  fwrite(summary_report, , sep = "\t")
+  kinship_summary_path <- get_output_path(step_num, "kinship_summary", batch_id, "phenotypes", "tsv", config = config)
+  ensure_output_dir(kinship_summary_path)
+  fwrite(summary_report, kinship_summary_path, sep = "\t")
 
   # Print summary
   cat("\n=== KINSHIP FILTERING SUMMARY ===\n")

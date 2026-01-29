@@ -210,7 +210,8 @@ create_batch_directories <- function(config, batch_id = NULL) {
     error = function(e) FALSE
   )
 
-  subdirs <- c("qc", "outliers", "normalized", "phenotypes", "pqtl", "reports", "logs", "aggregate", "pqtl-training")
+  # Note: Aggregate outputs are saved to phenotypes/aggregate/ by scripts 09-11
+  subdirs <- c("qc", "outliers", "normalized", "phenotypes", "pqtl", "reports", "logs", "pqtl-training")
 
   for (subdir in subdirs) {
     # Base directory
@@ -287,7 +288,7 @@ run_step_for_batch <- function(step_name, batch_id, config, dry_run = FALSE) {
     {
       # Clear skip flag before sourcing (scripts can set this if they skip)
       Sys.unsetenv("PIPELINE_STEP_SKIPPED")
-      
+
       # Source the script (it will read config and use batch context)
       source(script_path, local = FALSE)
 
@@ -296,7 +297,7 @@ run_step_for_batch <- function(step_name, batch_id, config, dry_run = FALSE) {
 
       # Check if step was skipped (scripts set PIPELINE_STEP_SKIPPED environment variable)
       was_skipped <- Sys.getenv("PIPELINE_STEP_SKIPPED", "FALSE") == "TRUE"
-      
+
       if (was_skipped) {
         success_msg <- paste0("⊘ Step ", step_name, " skipped\n")
         cat(success_msg)
@@ -366,7 +367,7 @@ run_cross_batch_step <- function(step_name, batches, config, dry_run = FALSE) {
     {
       # Clear skip flag before sourcing (scripts can set this if they skip)
       Sys.unsetenv("PIPELINE_STEP_SKIPPED")
-      
+
       source(script_path, local = FALSE)
 
       end_time <- Sys.time()
@@ -374,7 +375,7 @@ run_cross_batch_step <- function(step_name, batches, config, dry_run = FALSE) {
 
       # Check if step was skipped
       was_skipped <- Sys.getenv("PIPELINE_STEP_SKIPPED", "FALSE") == "TRUE"
-      
+
       if (was_skipped) {
         success_msg <- paste0("⊘ Cross-batch step ", step_name, " skipped\n")
         cat(success_msg)
@@ -390,83 +391,6 @@ run_cross_batch_step <- function(step_name, batches, config, dry_run = FALSE) {
       error_msg <- paste0("✗ Cross-batch step ", step_name, " failed: ", e$message, "\n")
       cat(error_msg, file = stderr())
       log_error("Cross-batch step {step_name} failed: {e$message}")
-      log_error("Error traceback: {paste(capture.output(traceback()), collapse='\\n')}")
-      return(FALSE)
-    }
-  )
-}
-
-# Function to run aggregation step (after all batches complete steps 00-08)
-run_aggregation_step <- function(step_name, batches, config, dry_run = FALSE) {
-  step_header <- paste0("\n", strrep("=", 60), "\n",
-                       "Running aggregation step: ", step_name, "\n",
-                       "Description: ", pipeline_steps[[step_name]], "\n",
-                       "Aggregating batches: ", paste(batches, collapse = ", "), "\n",
-                       strrep("=", 60), "\n")
-  cat(step_header)
-  log_info(strrep("=", 60))
-  log_info("Running aggregation step: {step_name}")
-  log_info("Description: {pipeline_steps[[step_name]]}")
-  log_info("Aggregating batches: {paste(batches, collapse=', ')}")
-  log_info(strrep("=", 60))
-
-  if (dry_run) {
-    log_info("[DRY RUN] Would execute aggregation step: {step_name}")
-    return(TRUE)
-  }
-
-  # Create aggregate directory
-  base_dir <- config$output$base_dir
-  if (is.null(base_dir)) {
-    base_dir <- Sys.getenv("PIPELINE_OUTPUT_DIR", "output")
-  }
-  aggregate_dir <- file.path(base_dir, "aggregate")
-  dir.create(aggregate_dir, recursive = TRUE, showWarnings = FALSE)
-
-  # Set batch context (not specific to one batch for aggregation)
-  config$batch$current_batch_id <- NULL
-  Sys.setenv(PIPELINE_BATCH_ID = "")
-  assign("PIPELINE_CONFIG_OBJ", config, envir = .GlobalEnv)
-
-  # Extract step number from step_name
-  step_num_match <- regmatches(step_name, regexpr("^[0-9]{2}", step_name))
-  step_num <- if (length(step_num_match) > 0) step_num_match[1] else "00"
-
-  # Set step number in environment
-  Sys.setenv(PIPELINE_STEP_NUM = step_num)
-  script_path <- file.path(script_dir, paste0(step_name, ".R"))
-  Sys.setenv(SCRIPT_NAME = script_path)
-
-  start_time <- Sys.time()
-
-  tryCatch(
-    {
-      # Clear skip flag before sourcing (scripts can set this if they skip)
-      Sys.unsetenv("PIPELINE_STEP_SKIPPED")
-      
-      source(script_path, local = FALSE)
-
-      end_time <- Sys.time()
-      duration <- difftime(end_time, start_time, units = "secs")
-
-      # Check if step was skipped
-      was_skipped <- Sys.getenv("PIPELINE_STEP_SKIPPED", "FALSE") == "TRUE"
-      
-      if (was_skipped) {
-        success_msg <- paste0("⊘ Aggregation step ", step_name, " skipped\n")
-        cat(success_msg)
-        log_info("Aggregation step {step_name} was skipped")
-      } else {
-        success_msg <- paste0("✓ Aggregation step ", step_name, " completed\n")
-        cat(success_msg)
-        log_info("Aggregation step {step_name} completed successfully in {round(duration, 2)} seconds")
-      }
-      return(TRUE)
-    },
-    error = function(e) {
-      error_msg <- paste0("✗ Aggregation step ", step_name, " failed: ", e$message, "\n")
-      cat(error_msg, file = stderr())
-      log_error("Aggregation step {step_name} failed: {e$message}")
       log_error("Error traceback: {paste(capture.output(traceback()), collapse='\\n')}")
       return(FALSE)
     }
@@ -544,7 +468,7 @@ main <- function() {
     cat("DRY RUN MODE - No actual execution\n")
   }
   cat(strrep("=", 60), "\n\n", sep = "")
-  
+
   log_info("Mode: {if(multi_batch_mode) 'Multi-batch' else 'Single-batch'}")
   log_info("Batches to process: {paste(batches, collapse=', ')}")
   log_info("Steps to run: {paste(steps_to_run, collapse=', ')}")
@@ -665,14 +589,14 @@ main <- function() {
     # Step 06 runs per-batch (can use cross-batch data for normalization)
     # Step 08 requires normalized data from step 06
     post_norm_to_run <- intersect(steps_to_run, post_normalization_steps)
-    
+
     if (length(post_norm_to_run) > 0) {
       phase35_msg <- paste0("\nPhase 3.5: Running normalization and post-normalization steps (per-batch)\n")
       cat(phase35_msg)
       log_info("Phase 3.5: Running normalization and post-normalization steps (per-batch)")
       log_info("  Step 06 runs per-batch (can use cross-batch data for normalization)")
       log_info("  Step 08 requires normalized data from step 06")
-      
+
       for (batch_id in batches) {
         for (step in post_norm_to_run) {
           success <- run_step_for_batch(step, batch_id, config, isTRUE(args$dry_run))
@@ -695,41 +619,38 @@ main <- function() {
       }
     }
 
-    # Phase 4: Aggregation steps (09-11) - run once if enabled
-    if (aggregate_output) {
-      aggregation_to_run <- intersect(steps_to_run, aggregation_steps)
-      if (length(aggregation_to_run) > 0) {
-        phase4_msg <- paste0("\nPhase 4: Running aggregation steps\n")
+    # Phase 4: Steps 09-11 (phenotype preparation, kinship filtering, rank normalization)
+    # CRITICAL FIX: Always run per-batch first, then scripts handle aggregation internally
+    # When aggregate_output=true, scripts will automatically aggregate after processing their batch
+    aggregation_steps_to_run <- intersect(steps_to_run, aggregation_steps)
+    if (length(aggregation_steps_to_run) > 0) {
+      if (aggregate_output) {
+        phase4_msg <- paste0("\nPhase 4: Running steps 09-11 per-batch (scripts will aggregate outputs)\n")
         cat(phase4_msg)
-        log_info("Phase 4: Running aggregation steps")
-        for (step in aggregation_to_run) {
-          success <- run_aggregation_step(step, batches, config, isTRUE(args$dry_run))
-          if (success) {
-            success_count <- success_count + 1
-          } else {
-            failed_steps <- c(failed_steps, step)
-            log_error("Aggregation step {step} failed")
-          }
-        }
-      }
-    } else {
-      # If aggregation disabled, process steps 09-11 per batch
-      aggregation_steps_to_run <- intersect(steps_to_run, aggregation_steps)
-      if (length(aggregation_steps_to_run) > 0) {
+        log_info("Phase 4: Running steps 09-11 per-batch (scripts will aggregate outputs)")
+        log_info("  Scripts detect aggregate_output=true and merge batch outputs internally")
+      } else {
         phase4_msg <- paste0("\nPhase 4: Processing batches through steps 09-11 (no aggregation)\n")
         cat(phase4_msg)
         log_info("Phase 4: Processing batches through steps 09-11 (no aggregation)")
-        for (batch_id in batches) {
-          for (step in aggregation_steps_to_run) {
-            success <- run_step_for_batch(step, batch_id, config, isTRUE(args$dry_run))
-            if (success) {
-              batch_results[[batch_id]]$success <- batch_results[[batch_id]]$success + 1
-              success_count <- success_count + 1
-            } else {
-              failed_step <- paste0(step, " (", batch_id, ")")
-              batch_results[[batch_id]]$failed <- c(batch_results[[batch_id]]$failed, step)
-              failed_steps <- c(failed_steps, failed_step)
+      }
+
+      for (batch_id in batches) {
+        for (step in aggregation_steps_to_run) {
+          success <- run_step_for_batch(step, batch_id, config, isTRUE(args$dry_run))
+          if (success) {
+            if (!batch_id %in% names(batch_results)) {
+              batch_results[[batch_id]] <- list(success = 0, failed = character())
             }
+            batch_results[[batch_id]]$success <- batch_results[[batch_id]]$success + 1
+            success_count <- success_count + 1
+          } else {
+            failed_step <- paste0(step, " (", batch_id, ")")
+            if (!batch_id %in% names(batch_results)) {
+              batch_results[[batch_id]] <- list(success = 0, failed = character())
+            }
+            batch_results[[batch_id]]$failed <- c(batch_results[[batch_id]]$failed, step)
+            failed_steps <- c(failed_steps, failed_step)
           }
         }
       }

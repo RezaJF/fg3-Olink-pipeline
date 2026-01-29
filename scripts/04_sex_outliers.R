@@ -1213,36 +1213,6 @@ create_prediction_plot <- function(predictions) {
   return(p)
 }
 
-# ============================================================================
-# DEPRECATED: 3-sigma threshold approach (COMMENTED OUT - DO NOT USE)
-# ============================================================================
-# This function computed sex-specific 3σ outlier thresholds from CV predictions.
-# ISSUE: Using 3σ from mean probability distribution is statistically incorrect
-# for binary classification tasks. It conflates prediction uncertainty with
-# true misclassification.
-#
-# REPLACEMENT: Use Youden's J threshold (optimized decision boundary from ROC curve)
-# which properly balances sensitivity and specificity.
-# ============================================================================
-# learn_sex_specific_thresholds <- function(y_true_01, y_pred_prob) {
-#   # y_true_01: 0=male, 1=female; y_pred_prob: predicted female probability from CV (held-out)
-#   dt <- data.table(y = as.integer(y_true_01), p = as.numeric(y_pred_prob))
-#   dt <- dt[!is.na(y) & !is.na(p)]
-#   male <- dt[y == 0]$p
-#   fem  <- dt[y == 1]$p
-#   mu_m <- mean(male, na.rm = TRUE); sd_m <- sd(male, na.rm = TRUE)
-#   mu_f <- mean(fem,  na.rm = TRUE); sd_f <- sd(fem,  na.rm = TRUE)
-#   # 3-sigma rule on CV predictions (model-informed)
-#   male_upper <- mu_m + 3 * sd_m
-#   female_lower <- mu_f - 3 * sd_f
-#   # Clamp to valid [0,1]
-#   male_upper <- min(1, max(0, male_upper))
-#   female_lower <- min(1, max(0, female_lower))
-#   separation <- mu_f - mu_m
-#   list(male_upper = male_upper, female_lower = female_lower, separation = separation,
-#        mu_male = mu_m, mu_female = mu_f, sd_male = sd_m, sd_female = sd_f, n = nrow(dt))
-# }
-
 # Two-panel distribution: left = density/hist by sex; right = probability strip with outliers and optional FINNGENID labels
 # Thresholds: 0.5 (mismatch), Youden's J (sex_outlier)
 create_prediction_distribution_panels <- function(df_pred, title, file_out,

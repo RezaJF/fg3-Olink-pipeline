@@ -979,9 +979,10 @@ main <- function() {
   # Load data from previous steps
   log_info("Loading data from previous steps")
 
-  # Try loading from step 07 (enhanced bridge) first, fallback to step 06 (median normalisation)
+  # Try loading from step 07 (cross-batch bridge) first, fallback to step 06 (within-batch median)
+  # Step 07 saves per-batch cross-batch normalized matrices as "npx_matrix_cross_batch_bridge_{batch}"
   npx_file_candidates <- c(
-    get_output_path("07", "npx_matrix_bridge_normalized", batch_id, "normalized", config = config),
+    get_output_path("07", "npx_matrix_cross_batch_bridge", batch_id, "normalized", config = config),
     get_output_path("06", "npx_matrix_normalized", batch_id, "normalized", config = config)
   )
 
