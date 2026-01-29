@@ -1,3 +1,10 @@
+## [1.3.1](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.3.0...v1.3.1) (2026-01-29)
+
+
+### Bug Fixes
+
+* **pipeline:** critical fix for cross-batch normalisation - use additive adjustment ([1f7241f](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/1f7241f3bce1087d2030b4575849ffaa94b3aebe))
+
 # [1.3.0](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.2.1...v1.3.0) (2026-01-27)
 
 
