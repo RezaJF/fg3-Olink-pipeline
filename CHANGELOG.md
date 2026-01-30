@@ -1,3 +1,10 @@
+# [1.4.0](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.3.1...v1.4.0) (2026-01-30)
+
+
+### Features
+
+* **bridge_normalization:** implement Olink standard bridge normalization with enhanced QC visualizations ([13ebd9c](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/13ebd9c061ed0292f50cd945dbe56f3c3c972706)), closes [#2166](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/issues/2166) [#67A9](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/issues/67A9) [#F4A582](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/issues/F4A582) [#B2182](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/issues/B2182)
+
 ## [1.3.1](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.3.0...v1.3.1) (2026-01-29)
 
 
