@@ -4,7 +4,7 @@
 
 **Version**: 1.5.0
 
-**Release Date**: January 2026
+**Release Date**: February 2026
 
 **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
 
@@ -536,6 +536,29 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - `parameters.bridge_normalization.method`: "olink_standard" (default) or "combined_reference"
   - `parameters.bridge_normalization.bridgeability_proteins`: List of protein names/OlinkIDs for detailed QC plots (empty list = skip)
 
+#### 07b_cross_batch_harmonisation_kpi.R (Optional — Multi-Batch Only)
+- **Purpose**: Post-hoc evaluation of bridge normalisation efficacy with a comprehensive KPI dashboard
+- **When to run**: After Step 07 completes, when `run_kpi_evaluation: true` in config
+- **Input**: QC-passed matrices (Step 05d) as pre-harmonisation reference, bridge-normalised matrices (Step 07) as post-harmonisation
+- **KPI Metrics**:
+  1. **Bridge pair collapse**: Euclidean distance, Mahalanobis distance, ICC, CCC (pre vs post)
+  2. **Effect size**: Paired log-ratio with bootstrap 95% CI, Wilcoxon signed-rank test
+  3. **Noise floor ratio**: Post-harmonisation bridge distance relative to within-batch replicate distance
+  4. **Rank-1 identification rate**: k-NN pair identity test (can the correct bridge partner be recovered?)
+  5. **Batch separability**: Silhouette score, kBET acceptance rate, LISI score, Batch Separability AUC
+  6. **Biology preservation**: Sex prediction accuracy (pre vs post), variance decomposition (batch vs sex)
+  7. **Outlier detection**: Bridge pair flags (Mahalanobis + noise ratio), per-protein harmonisation (MSE/R²)
+- **Dashboard**: Multi-page PDF with dumbbell plots, PCA scatter, distance ECDF, correlation heatmaps, variance decomposition, and outlier drill-down panels
+- **Output**:
+  - `07b_kpi_summary_{batch}.tsv`: Summary table of all KPI metrics
+  - `07b_kpi_dashboard_{batch}.pdf`: Multi-page visualisation dashboard
+  - `07b_bridge_pair_distances_{batch}.tsv`: Per-pair distance metrics (pre/post)
+  - `07b_noise_floor_analysis_{batch}.tsv`: Within-batch replicate noise floor statistics
+  - `07b_protein_concordance_{batch}.tsv`: Per-protein ICC/CCC concordance
+  - `07b_poorly_harmonised_proteins_{batch}.tsv`: Proteins where harmonisation worsened (MSE increased or R² < 0.5)
+  - `07b_outlier_flags_{batch}.tsv`: Flagged bridge pairs with outlier metrics
+  - `07b_variance_decomposition_{batch}.tsv`: Per-protein batch/sex variance fractions
+
 #### 08_covariate_adjustment.R
 - **Purpose**: Adjust for biological covariates using linear regression
 - **Default Covariates**: Age and sex only (configurable via `config.yaml`)
@@ -642,6 +665,7 @@ This section details the matrix flow from QC completion through final phenotype 
 | **05d** | `01_npx_matrix_pca_cleaned` + outlier flags | `05d_npx_matrix_all_qc_passed` | Final QCed matrix (all outliers removed) |
 | **06** | `05d_npx_matrix_all_qc_passed` | `06_npx_matrix_normalized` | Within-batch median normalisation |
 | **07** | `05d_npx_matrix_all_qc_passed` (both batches) | `07_npx_matrix_cross_batch_bridge_{batch}` | Cross-batch bridge normalisation (multi-batch only) |
+| **07b** | `05d_npx_matrix_all_qc_passed` + `07_npx_matrix_cross_batch_bridge` | `07b_kpi_summary_{batch}`, `07b_kpi_dashboard_{batch}.pdf` | Post-hoc harmonisation KPI evaluation (optional) |
 | **08** | `06_npx_matrix_normalized` or `07_npx_matrix_cross_batch_bridge` | `08_npx_matrix_covariate_adjusted` | Age/sex/BMI/smoking adjustment |
 | **09** | `08_npx_matrix_covariate_adjusted` | `09_phenotype_matrix_finngenid` | Outlier removal, FINNGENID indexing |
 | **10** | `09_phenotype_matrix_finngenid` | `10_phenotype_matrix_finngenid_unrelated` | Kinship filtering, remove related individuals |
@@ -719,6 +743,23 @@ Phase 3: Cross-Batch Normalisation (Step 07)
 │   07_normalization_evaluations_batch_01.tsv                                │
 │   07_pca_pc1_pc2_before_after_comparison_*.pdf (side-by-side)              │
 │   07_normalization_effect_{method}_*.pdf (histogram+density+violin)        │
+└────────────────────────────────────────────────────────────────────────────┘
+         │
+         ▼ (optional, if run_kpi_evaluation: true)
+┌────────────────────────────────────────────────────────────────────────────┐
+│ Step 07b: Cross-Batch Harmonisation KPI Evaluation                         │
+├────────────────────────────────────────────────────────────────────────────┤
+│ Post-hoc evaluation of bridge normalisation efficacy. Computes:            │
+│   - Bridge pair collapse (Euclidean, Mahalanobis, ICC, CCC)                │
+│   - Paired log-ratio effect size with bootstrap 95% CI                     │
+│   - Within-batch replicate noise floor ratio                               │
+│   - Rank-1 k-NN pair identification rate                                   │
+│   - Batch separability (Silhouette, kBET (k-Nearest Neighbour Batch Effect Test), LISI (Local Inverse Simpson's Index))                            │
+│   - Biology preservation (sex accuracy, variance decomposition)            │
+│   - Outlier detection (bridge pair flags, protein concordance)             │
+│                                                                            │
+│ Output: 07b_kpi_summary_*.tsv, 07b_kpi_dashboard_*.pdf,                    │
+│         07b_bridge_pair_distances_*.tsv, 07b_noise_floor_analysis_*.tsv    │
 └────────────────────────────────────────────────────────────────────────────┘
          │
          ▼
@@ -1234,7 +1275,7 @@ Bridge samples are shared across batches and are essential for cross-batch harmo
 ### R Packages
 - **Core**: data.table, tidyverse, arrow, yaml, logger
 - **Analysis**: glmnet, pheatmap, pROC, PRROC, OlinkAnalyze, sva
-- **Visualisation**: ggplot2, ggrepel, paletteer, gridExtra
+- **Visualisation**: ggplot2, ggpubr, ggrepel, paletteer, gridExtra
 - **Optional**: randomForest, xgboost, caret, keras3, tensorflow
 
 ### External Tools
@@ -1284,7 +1325,7 @@ If you use this pipeline, please cite:
 - **Pipeline**: FinnGen 3 Olink Proteomics Analysis Pipeline
 - **Author**: Reza Jabal, PhD (rjabal@broadinstitute.org)
 - **Version**: 1.5.0
-- **Release Date**: January 2026
+- **Release Date**: February 2026
 - **Platform**: Olink Explore HT (5K)
 
 ## Versioning and Releases

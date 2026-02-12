@@ -58,6 +58,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+* **cross_batch_kpi:** Post-hoc cross-batch harmonisation KPI evaluation (Step 07b)
+  * New pipeline step `07b_cross_batch_harmonisation_kpi.R` runs after bridge normalisation
+  * Fixed PCA basis (avoids basis leakage) for all distance computations
+  * Bridge pair collapse metrics: Euclidean, Mahalanobis, ICC, Lin's CCC
+  * Paired log-ratio effect size with 10,000-resample bootstrap 95% CI
+  * Within-batch replicate noise floor ratio (23 B1 + 139 B2 replicate pairs)
+  * Rank-1 k-NN pair identification rate
+  * Batch separability: Silhouette score, kBET acceptance, LISI mixing score
+  * Biology preservation: sex prediction accuracy, variance decomposition (batch vs sex)
+  * Outlier detection: Mahalanobis flagging, per-protein concordance profiling
+  * Multi-panel PDF dashboard with 8+ diagnostic panels
+  * KPI summary table with pass/warn/fail classification
+  * New config parameter: `parameters.bridge_normalization.run_kpi_evaluation`
+  * New R package dependencies: irr, DescTools, FNN, kBET, lisi
+
 * **sex_outliers:** Configurable sex outlier handling mode
   * New configuration parameter `parameters.outliers.sex_outlier_mode` with two options:
     * `"all"` (default): Remove both TIER 1 strict mismatches AND TIER 2 threshold-based outliers

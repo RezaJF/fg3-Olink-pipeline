@@ -300,9 +300,10 @@ get_step_number <- function(script_name = NULL) {
     }
   }
 
-  # Extract step number (first two digits) from script name
+  # Extract step number (first two digits, optionally followed by a letter) from script name
+  # e.g., "07b_cross_batch_harmonisation_kpi.R" -> "07b"
   if (script_name != "") {
-    step_match <- regmatches(basename(script_name), regexpr("^[0-9]{2}", basename(script_name)))
+    step_match <- regmatches(basename(script_name), regexpr("^[0-9]{2}[a-z]?", basename(script_name)))
     if (length(step_match) > 0) {
       return(step_match[1])
     }

@@ -737,8 +737,10 @@ evaluate_bridge_normalization <- function(raw_matrix, normalized_matrix, bridge_
 }
 
 # Function to load all batch matrices for cross-batch comparison
+# NOTE: This function always uses QC-passed matrices (step 05d) for cross-batch normalization
 load_all_batch_matrices <- function(current_batch_id, config, input_choice = "qc_passed") {
   log_info("Loading all batch matrices for cross-batch comparison")
+  log_info("CRITICAL: Cross-batch normalization REQUIRES QC-passed matrices from step 05d")
 
   # Get all batch IDs from config
   # Check if config$batches exists and is not NULL
@@ -757,21 +759,20 @@ load_all_batch_matrices <- function(current_batch_id, config, input_choice = "qc
   batch_matrices <- list()
 
   for (batch_id in all_batches) {
-    if (input_choice == "qc_passed") {
-      matrix_path <- get_output_path("05d", "05d_npx_matrix_all_qc_passed", batch_id, "phenotypes", "rds", config = config)
-      if (!file.exists(matrix_path)) {
-        matrix_path <- get_output_path("00", "npx_matrix_analysis_ready", batch_id, "qc", config = config)
-      }
-    } else {
-      matrix_path <- get_output_path("00", "npx_matrix_analysis_ready", batch_id, "qc", config = config)
+    # CRITICAL: Cross-batch normalization MUST use QC-passed matrices (step 05d)
+    # The input_choice parameter is kept for backward compatibility but is ignored
+    # Raw matrices contain outlier samples that should not be used for bridge normalization
+    matrix_path <- get_output_path("05d", "05d_npx_matrix_all_qc_passed", batch_id, "phenotypes", "rds", config = config)
+
+    if (!file.exists(matrix_path)) {
+      log_error("QC-passed matrix not found for {batch_id}: {matrix_path}")
+      log_error("Cross-batch normalization REQUIRES QC-passed matrices from step 05d")
+      log_warn("Matrix not found for {batch_id}: {matrix_path}")
+      next  # Skip this batch rather than failing entirely (allows partial loading for diagnostics)
     }
 
-    if (file.exists(matrix_path)) {
-      batch_matrices[[batch_id]] <- readRDS(matrix_path)
-      log_info("Loaded {batch_id}: {nrow(batch_matrices[[batch_id]])} samples × {ncol(batch_matrices[[batch_id]])} proteins")
-    } else {
-      log_warn("Matrix not found for {batch_id}: {matrix_path}")
-    }
+    batch_matrices[[batch_id]] <- readRDS(matrix_path)
+    log_info("Loaded {batch_id}: {nrow(batch_matrices[[batch_id]])} samples × {ncol(batch_matrices[[batch_id]])} proteins")
   }
 
   return(batch_matrices)
@@ -2333,9 +2334,8 @@ main <- function() {
 
   # Load data from ALL batches for cross-batch normalization
   log_info("Loading data from all batches for cross-batch normalization")
-
-  # Determine input based on configuration
-  input_choice <- tryCatch(config$parameters$normalization$enhanced_bridge_input, error = function(e) "qc_passed")
+  log_info("CRITICAL: Cross-batch normalization REQUIRES QC-passed matrices from step 05d")
+  log_info("  This ensures all outlier samples have been removed before harmonisation")
 
   # Load matrices, sample mappings, and bridge samples for all batches
   batch_matrices <- list()
@@ -2345,24 +2345,16 @@ main <- function() {
   for (current_batch_id in all_batch_ids) {
     log_info("Loading data for batch: {current_batch_id}")
 
-    # Load matrix
-    if(input_choice == "qc_passed") {
-      matrix_path <- get_output_path("05d", "05d_npx_matrix_all_qc_passed", current_batch_id, "phenotypes", "rds", config = config)
-      if (!file.exists(matrix_path)) {
-        log_warn("QC-passed matrix not found for {current_batch_id}: {matrix_path}")
-        log_warn("Falling back to analysis-ready matrix from step 00")
-        matrix_path <- get_output_path("00", "npx_matrix_analysis_ready", current_batch_id, "qc", config = config)
-      }
-    } else if(input_choice == "raw") {
-      matrix_path <- get_output_path("00", "npx_matrix_analysis_ready", current_batch_id, "qc", config = config)
-    } else {
-      log_error("Invalid enhanced_bridge_input: {input_choice}")
-      stop("Invalid configuration: enhanced_bridge_input must be 'qc_passed' or 'raw'")
-    }
+    # CRITICAL: Cross-batch normalization MUST use QC-passed matrices (step 05d)
+    # Raw matrices contain outlier samples that should not be used for bridge normalization
+    matrix_path <- get_output_path("05d", "05d_npx_matrix_all_qc_passed", current_batch_id, "phenotypes", "rds", config = config)
 
     if (!file.exists(matrix_path)) {
-      log_error("NPX matrix file not found for {current_batch_id}: {matrix_path}")
-      stop(paste0("NPX matrix file not found for ", current_batch_id, ": ", matrix_path))
+      log_error("QC-passed matrix not found for {current_batch_id}: {matrix_path}")
+      log_error("Cross-batch normalization REQUIRES QC-passed matrices from step 05d")
+      log_error("  This ensures outlier samples are removed before harmonisation")
+      log_error("  Please ensure step 05d (comprehensive QC report) has completed successfully")
+      stop(paste0("QC-passed matrix required but not found for ", current_batch_id, ": ", matrix_path))
     }
     batch_matrices[[current_batch_id]] <- readRDS(matrix_path)
     log_info("  Loaded matrix: {nrow(batch_matrices[[current_batch_id]])} samples × {ncol(batch_matrices[[current_batch_id]])} proteins")

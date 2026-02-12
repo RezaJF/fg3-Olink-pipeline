@@ -133,6 +133,9 @@ parameters:
     # If empty list [], no bridgeability plots will be generated
     # Example: ["IL6", "TNF", "OID40770", "MST1", "LAIR2"]
     bridgeability_proteins: []  # List of proteins for per-protein bridgeability assessment
+    # Post-hoc KPI evaluation of harmonisation efficacy (Step 07b)
+    # Computes distance metrics, noise floor ratio, kBET, LISI, biology preservation, and outlier detection
+    run_kpi_evaluation: false  # Set to true to run cross-batch harmonisation KPI after step 07
 
   # Aggregation (only used when multi_batch_mode: true)
   aggregation:

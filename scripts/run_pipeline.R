@@ -138,6 +138,7 @@ pipeline_steps <- list(
   "05d_qc_comprehensive_report" = "Comprehensive QC report generation",
   "06_normalize_data" = "Data normalization",
   "07_bridge_normalization" = "Bridge sample normalization",
+  "07b_cross_batch_harmonisation_kpi" = "Cross-batch harmonisation KPI evaluation (optional)",
   "08_covariate_adjustment" = "Covariate adjustment",
   "09_prepare_phenotypes" = "Phenotype preparation",
   "10_kinship_filtering" = "Kinship filtering",
@@ -146,7 +147,7 @@ pipeline_steps <- list(
 
 # Steps that require cross-batch operations (run after all batches complete steps 00-05d)
 # NOTE: 06_normalize_data is NOT a true cross-batch step - it runs per-batch but can use cross-batch data
-cross_batch_steps <- c("07_bridge_normalization")
+cross_batch_steps <- c("07_bridge_normalization", "07b_cross_batch_harmonisation_kpi")
 
 # Steps that require normalized data (run after normalization steps 06-07)
 # NOTE: 06_normalize_data runs per-batch in Phase 3.5, before step 08
