@@ -1,3 +1,10 @@
+# [1.6.0](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.5.0...v1.6.0) (2026-02-12)
+
+
+### Features
+
+* **pipeline:** add cross-batch KPI evaluation (step 07b) and enforce QC-passed input for bridge normalisation ([538cb9f](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/commit/538cb9f46c1421f99883fb43212816c59f23852b))
+
 # [1.5.0](https://github.com/FINNGEN/FinnGen3-proteomics-pipeline/compare/v1.4.0...v1.5.0) (2026-02-05)
 
 
