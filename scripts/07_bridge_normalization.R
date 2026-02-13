@@ -186,6 +186,21 @@ cross_batch_bridge_normalization <- function(batch1_matrix, batch2_matrix, batch
   log_info("  Batch 2 bridge FINNGENIDs available: {length(batch2_bridge_finngenids)}")
   log_info("  Common bridge FINNGENIDs: {length(common_bridge_finngenids)}")
 
+  # --- Configurable bridge sample exclusion (from config) ---
+  exclude_sids <- tryCatch(
+    config$parameters$bridge_normalization$exclude_bridge_sample_ids,
+    error = function(e) NULL)
+  if (!is.null(exclude_sids) && length(exclude_sids) > 0) {
+    # Resolve SampleIDs to FINNGENIDs for exclusion matching
+    excl_fg_b1 <- batch1_sample_mapping[SampleID %in% exclude_sids]$FINNGENID
+    excl_fg_b2 <- batch2_sample_mapping[SampleID %in% exclude_sids]$FINNGENID
+    excl_finngenids <- unique(c(exclude_sids, excl_fg_b1, excl_fg_b2))
+    n_before <- length(common_bridge_finngenids)
+    common_bridge_finngenids <- setdiff(common_bridge_finngenids, excl_finngenids)
+    log_info("  Excluded {n_before - length(common_bridge_finngenids)} bridge FINNGENIDs from config exclusion list")
+    log_info("  Common bridge FINNGENIDs after exclusion: {length(common_bridge_finngenids)}")
+  }
+
   if(length(common_bridge_finngenids) < 10) {
     log_error("Insufficient common bridge samples ({length(common_bridge_finngenids)} < 10)")
     return(NULL)
@@ -2135,8 +2150,10 @@ create_distribution_plots <- function(batch1_matrix, batch2_matrix, batch1_norma
 }
 
 # Updated evaluation function for cross-batch normalization
-# NOTE: Now uses CV, SD, MAD, and IQR since we use additive normalization
-# CV is a valid metric for additive adjustments (NPX + offset)
+# NOTE: Within-batch SD/MAD/IQR are invariant under additive shifts (Bridge, Median).
+#       The PRIMARY metric is the between-batch median difference per protein (ΔMED),
+#       which directly measures what additive normalisation is designed to reduce.
+#       Within-batch CV/SD/MAD/IQR are retained as secondary diagnostics.
 evaluate_cross_batch_normalization <- function(batch1_raw, batch2_raw, batch1_normalized, batch2_normalized,
                                                common_proteins, method_name) {
   log_info("╔══════════════════════════════════════════════════════════════════╗")
@@ -2144,20 +2161,41 @@ evaluate_cross_batch_normalization <- function(batch1_raw, batch2_raw, batch1_no
   log_info("╚══════════════════════════════════════════════════════════════════╝")
 
   # Calculate CV before normalization (common proteins only)
-  # CV = SD / mean, measures relative variability
+  # CV = SD / |mean|, measures relative variability
+  # Using absolute mean to handle negative values in log-transformed NPX data
   cv_batch1_before <- apply(batch1_raw[, common_proteins, drop = FALSE], 2, function(x) {
-    sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE)
+    mean_abs <- abs(mean(x, na.rm = TRUE))
+    if (mean_abs > 0) {
+      sd(x, na.rm = TRUE) / mean_abs
+    } else {
+      NA_real_
+    }
   })
   cv_batch2_before <- apply(batch2_raw[, common_proteins, drop = FALSE], 2, function(x) {
-    sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE)
+    mean_abs <- abs(mean(x, na.rm = TRUE))
+    if (mean_abs > 0) {
+      sd(x, na.rm = TRUE) / mean_abs
+    } else {
+      NA_real_
+    }
   })
 
   # Calculate CV after normalization
   cv_batch1_after <- apply(batch1_normalized[, common_proteins, drop = FALSE], 2, function(x) {
-    sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE)
+    mean_abs <- abs(mean(x, na.rm = TRUE))
+    if (mean_abs > 0) {
+      sd(x, na.rm = TRUE) / mean_abs
+    } else {
+      NA_real_
+    }
   })
   cv_batch2_after <- apply(batch2_normalized[, common_proteins, drop = FALSE], 2, function(x) {
-    sd(x, na.rm = TRUE) / mean(x, na.rm = TRUE)
+    mean_abs <- abs(mean(x, na.rm = TRUE))
+    if (mean_abs > 0) {
+      sd(x, na.rm = TRUE) / mean_abs
+    } else {
+      NA_real_
+    }
   })
 
   # Calculate SD before normalization (common proteins only)
@@ -2181,14 +2219,16 @@ evaluate_cross_batch_normalization <- function(batch1_raw, batch2_raw, batch1_no
   iqr_batch2_after <- apply(batch2_normalized[, common_proteins, drop = FALSE], 2, IQR, na.rm = TRUE)
 
   # Calculate percentage reductions for CV
+  # Note: CV now uses absolute mean (CV = SD/|mean|) to handle negative values in log-transformed NPX data
   mean_cv_batch1_before <- mean(cv_batch1_before, na.rm = TRUE)
   mean_cv_batch1_after <- mean(cv_batch1_after, na.rm = TRUE)
   mean_cv_batch2_before <- mean(cv_batch2_before, na.rm = TRUE)
   mean_cv_batch2_after <- mean(cv_batch2_after, na.rm = TRUE)
 
-  cv_reduction_batch1 <- ifelse(mean_cv_batch1_before > 0,
+  # Handle cases where mean CV might be NA or non-positive
+  cv_reduction_batch1 <- ifelse(!is.na(mean_cv_batch1_before) && mean_cv_batch1_before > 0,
     (mean_cv_batch1_before - mean_cv_batch1_after) / mean_cv_batch1_before * 100, NA_real_)
-  cv_reduction_batch2 <- ifelse(mean_cv_batch2_before > 0,
+  cv_reduction_batch2 <- ifelse(!is.na(mean_cv_batch2_before) && mean_cv_batch2_before > 0,
     (mean_cv_batch2_before - mean_cv_batch2_after) / mean_cv_batch2_before * 100, NA_real_)
 
   # Calculate percentage reductions for SD
@@ -2224,7 +2264,80 @@ evaluate_cross_batch_normalization <- function(batch1_raw, batch2_raw, batch1_no
   iqr_reduction_batch2 <- ifelse(mean_iqr_batch2_before > 0,
     (mean_iqr_batch2_before - mean_iqr_batch2_after) / mean_iqr_batch2_before * 100, NA_real_)
 
-  # Summary statistics table (CV, SD, MAD, IQR metrics)
+  # Calculate distribution statistics (mean, median, min, max, quantiles) before normalization
+  # For all values across all proteins (flattened)
+  all_values_b1_before <- as.vector(batch1_raw[, common_proteins, drop = FALSE])
+  all_values_b2_before <- as.vector(batch2_raw[, common_proteins, drop = FALSE])
+  all_values_b1_after <- as.vector(batch1_normalized[, common_proteins, drop = FALSE])
+  all_values_b2_after <- as.vector(batch2_normalized[, common_proteins, drop = FALSE])
+
+  # Remove NAs for distribution calculations
+  all_values_b1_before <- all_values_b1_before[!is.na(all_values_b1_before)]
+  all_values_b2_before <- all_values_b2_before[!is.na(all_values_b2_before)]
+  all_values_b1_after <- all_values_b1_after[!is.na(all_values_b1_after)]
+  all_values_b2_after <- all_values_b2_after[!is.na(all_values_b2_after)]
+
+  # Distribution statistics for Batch 1
+  dist_b1_before <- list(
+    mean = mean(all_values_b1_before),
+    median = median(all_values_b1_before),
+    min = min(all_values_b1_before),
+    max = max(all_values_b1_before),
+    q25 = quantile(all_values_b1_before, 0.25, na.rm = TRUE),
+    q75 = quantile(all_values_b1_before, 0.75, na.rm = TRUE)
+  )
+  dist_b1_after <- list(
+    mean = mean(all_values_b1_after),
+    median = median(all_values_b1_after),
+    min = min(all_values_b1_after),
+    max = max(all_values_b1_after),
+    q25 = quantile(all_values_b1_after, 0.25, na.rm = TRUE),
+    q75 = quantile(all_values_b1_after, 0.75, na.rm = TRUE)
+  )
+
+  # Distribution statistics for Batch 2
+  dist_b2_before <- list(
+    mean = mean(all_values_b2_before),
+    median = median(all_values_b2_before),
+    min = min(all_values_b2_before),
+    max = max(all_values_b2_before),
+    q25 = quantile(all_values_b2_before, 0.25, na.rm = TRUE),
+    q75 = quantile(all_values_b2_before, 0.75, na.rm = TRUE)
+  )
+  dist_b2_after <- list(
+    mean = mean(all_values_b2_after),
+    median = median(all_values_b2_after),
+    min = min(all_values_b2_after),
+    max = max(all_values_b2_after),
+    q25 = quantile(all_values_b2_after, 0.25, na.rm = TRUE),
+    q75 = quantile(all_values_b2_after, 0.75, na.rm = TRUE)
+  )
+
+  # ---------------------------------------------------------------------------
+  # PRIMARY METRIC: Between-batch median difference per protein (ΔMED)
+  # This directly measures what additive normalisation corrects: the systematic
+  # per-protein offset between batches.  Invariance of within-batch SD under
+  # additive shifts (sd(X+c) = sd(X)) means SD/MAD/IQR are uninformative for
+  # Bridge and Median methods.
+  # ---------------------------------------------------------------------------
+  med_b1_before <- apply(batch1_raw[, common_proteins, drop = FALSE], 2, median, na.rm = TRUE)
+  med_b2_before <- apply(batch2_raw[, common_proteins, drop = FALSE], 2, median, na.rm = TRUE)
+  med_b1_after  <- apply(batch1_normalized[, common_proteins, drop = FALSE], 2, median, na.rm = TRUE)
+  med_b2_after  <- apply(batch2_normalized[, common_proteins, drop = FALSE], 2, median, na.rm = TRUE)
+
+  # Per-protein absolute between-batch median difference
+  abs_delta_med_before <- abs(med_b1_before - med_b2_before)
+  abs_delta_med_after  <- abs(med_b1_after  - med_b2_after)
+
+  # Mean across all proteins
+  mean_delta_med_before <- mean(abs_delta_med_before, na.rm = TRUE)
+  mean_delta_med_after  <- mean(abs_delta_med_after, na.rm = TRUE)
+
+  # Percentage reduction (positive = improvement)
+  delta_med_reduction_pct <- ifelse(mean_delta_med_before > 0,
+    (mean_delta_med_before - mean_delta_med_after) / mean_delta_med_before * 100, NA_real_)
+
+  # Summary statistics table (within-batch + between-batch metrics)
   eval_stats <- data.table(
     method = method_name,
     batch = c("batch_01", "batch_02"),
@@ -2239,32 +2352,58 @@ evaluate_cross_batch_normalization <- function(batch1_raw, batch2_raw, batch1_no
     mad_reduction_pct = c(mad_reduction_batch1, mad_reduction_batch2),
     mean_iqr_before = c(mean_iqr_batch1_before, mean_iqr_batch2_before),
     mean_iqr_after = c(mean_iqr_batch1_after, mean_iqr_batch2_after),
-    iqr_reduction_pct = c(iqr_reduction_batch1, iqr_reduction_batch2)
+    iqr_reduction_pct = c(iqr_reduction_batch1, iqr_reduction_batch2),
+    # Between-batch metric (same for both rows since it's a cross-batch measure)
+    mean_delta_med_before = mean_delta_med_before,
+    mean_delta_med_after = mean_delta_med_after,
+    delta_med_reduction_pct = delta_med_reduction_pct
   )
 
-  # Calculate overall improvement using CV (primary metric, Olink standard)
+  # Overall improvement: use between-batch ΔMED as primary, within-batch CV/SD as secondary
+  overall_delta_med_improvement <- delta_med_reduction_pct
   overall_cv_improvement <- mean(c(cv_reduction_batch1, cv_reduction_batch2), na.rm = TRUE)
   overall_sd_improvement <- mean(c(sd_reduction_batch1, sd_reduction_batch2), na.rm = TRUE)
 
-  log_info("Batch 1 results:")
-  log_info("  CV: {round(mean_cv_batch1_before, 3)} → {round(mean_cv_batch1_after, 3)} ({round(cv_reduction_batch1, 2)}% reduction)")
-  log_info("  SD: {round(mean_sd_batch1_before, 3)} → {round(mean_sd_batch1_after, 3)} ({round(sd_reduction_batch1, 2)}% reduction)")
-  log_info("  MAD: {round(mean_mad_batch1_before, 3)} → {round(mean_mad_batch1_after, 3)} ({round(mad_reduction_batch1, 2)}% reduction)")
-  log_info("  IQR: {round(mean_iqr_batch1_before, 3)} → {round(mean_iqr_batch1_after, 3)} ({round(iqr_reduction_batch1, 2)}% reduction)")
-  log_info("Batch 2 results:")
-  log_info("  CV: {round(mean_cv_batch2_before, 3)} → {round(mean_cv_batch2_after, 3)} ({round(cv_reduction_batch2, 2)}% reduction)")
-  log_info("  SD: {round(mean_sd_batch2_before, 3)} → {round(mean_sd_batch2_after, 3)} ({round(sd_reduction_batch2, 2)}% reduction)")
-  log_info("  MAD: {round(mean_mad_batch2_before, 3)} → {round(mean_mad_batch2_after, 3)} ({round(mad_reduction_batch2, 2)}% reduction)")
-  log_info("  IQR: {round(mean_iqr_batch2_before, 3)} → {round(mean_iqr_batch2_after, 3)} ({round(iqr_reduction_batch2, 2)}% reduction)")
-  log_info("Overall CV improvement: {round(overall_cv_improvement, 2)}%")
-  log_info("Overall SD improvement: {round(overall_sd_improvement, 2)}%")
+  log_info("")
+  log_info("Between-batch alignment (PRIMARY):")
+  delta_med_reduction_str <- ifelse(is.na(delta_med_reduction_pct), "NA", paste0(round(delta_med_reduction_pct, 2), "%"))
+  log_info("  Mean |Δmedian| per protein: {round(mean_delta_med_before, 4)} → {round(mean_delta_med_after, 4)} ({delta_med_reduction_str} reduction)")
+  log_info("")
+  log_info("Within-batch variability metrics (secondary; invariant under additive shift):")
+  sd_reduction_b1_str <- ifelse(is.na(sd_reduction_batch1), "NA", paste0(round(sd_reduction_batch1, 2), "%"))
+  sd_reduction_b2_str <- ifelse(is.na(sd_reduction_batch2), "NA", paste0(round(sd_reduction_batch2, 2), "%"))
+  mad_reduction_b1_str <- ifelse(is.na(mad_reduction_batch1), "NA", paste0(round(mad_reduction_batch1, 2), "%"))
+  mad_reduction_b2_str <- ifelse(is.na(mad_reduction_batch2), "NA", paste0(round(mad_reduction_batch2, 2), "%"))
+  iqr_reduction_b1_str <- ifelse(is.na(iqr_reduction_batch1), "NA", paste0(round(iqr_reduction_batch1, 2), "%"))
+  iqr_reduction_b2_str <- ifelse(is.na(iqr_reduction_batch2), "NA", paste0(round(iqr_reduction_batch2, 2), "%"))
+  cv_reduction_b1_str <- ifelse(is.na(cv_reduction_batch1), "NA", paste0(round(cv_reduction_batch1, 2), "%"))
+  cv_reduction_b2_str <- ifelse(is.na(cv_reduction_batch2), "NA", paste0(round(cv_reduction_batch2, 2), "%"))
+  log_info("  Batch 1 SD:  {round(mean_sd_batch1_before, 3)} → {round(mean_sd_batch1_after, 3)} ({sd_reduction_b1_str} reduction)")
+  log_info("  Batch 2 SD:  {round(mean_sd_batch2_before, 3)} → {round(mean_sd_batch2_after, 3)} ({sd_reduction_b2_str} reduction)")
+  log_info("  Batch 1 MAD: {round(mean_mad_batch1_before, 3)} → {round(mean_mad_batch1_after, 3)} ({mad_reduction_b1_str} reduction)")
+  log_info("  Batch 2 MAD: {round(mean_mad_batch2_before, 3)} → {round(mean_mad_batch2_after, 3)} ({mad_reduction_b2_str} reduction)")
+  log_info("  Batch 1 IQR: {round(mean_iqr_batch1_before, 3)} → {round(mean_iqr_batch1_after, 3)} ({iqr_reduction_b1_str} reduction)")
+  log_info("  Batch 2 IQR: {round(mean_iqr_batch2_before, 3)} → {round(mean_iqr_batch2_after, 3)} ({iqr_reduction_b2_str} reduction)")
+  cv_b1_before_str <- ifelse(is.na(mean_cv_batch1_before), "NA", as.character(round(mean_cv_batch1_before, 3)))
+  cv_b1_after_str <- ifelse(is.na(mean_cv_batch1_after), "NA", as.character(round(mean_cv_batch1_after, 3)))
+  cv_b2_before_str <- ifelse(is.na(mean_cv_batch2_before), "NA", as.character(round(mean_cv_batch2_before, 3)))
+  cv_b2_after_str <- ifelse(is.na(mean_cv_batch2_after), "NA", as.character(round(mean_cv_batch2_after, 3)))
+  log_info("  Batch 1 CV:  {cv_b1_before_str} → {cv_b1_after_str} ({cv_reduction_b1_str} reduction) [CV = SD/|mean|]")
+  log_info("  Batch 2 CV:  {cv_b2_before_str} → {cv_b2_after_str} ({cv_reduction_b2_str} reduction) [CV = SD/|mean|]")
+  log_info("")
+  log_info("Distribution statistics (all values across all proteins):")
+  log_info("  Batch 1 - Before: mean={round(dist_b1_before$mean, 3)}, median={round(dist_b1_before$median, 3)}, min={round(dist_b1_before$min, 3)}, max={round(dist_b1_before$max, 3)}, Q25={round(dist_b1_before$q25, 3)}, Q75={round(dist_b1_before$q75, 3)}")
+  log_info("  Batch 1 - After:  mean={round(dist_b1_after$mean, 3)}, median={round(dist_b1_after$median, 3)}, min={round(dist_b1_after$min, 3)}, max={round(dist_b1_after$max, 3)}, Q25={round(dist_b1_after$q25, 3)}, Q75={round(dist_b1_after$q75, 3)}")
+  log_info("  Batch 2 - Before: mean={round(dist_b2_before$mean, 3)}, median={round(dist_b2_before$median, 3)}, min={round(dist_b2_before$min, 3)}, max={round(dist_b2_before$max, 3)}, Q25={round(dist_b2_before$q25, 3)}, Q75={round(dist_b2_before$q75, 3)}")
+  log_info("  Batch 2 - After:  mean={round(dist_b2_after$mean, 3)}, median={round(dist_b2_after$median, 3)}, min={round(dist_b2_after$min, 3)}, max={round(dist_b2_after$max, 3)}, Q25={round(dist_b2_after$q25, 3)}, Q75={round(dist_b2_after$q75, 3)}")
   log_info("════════════════════════════════════════════════════════════════════")
 
   return(list(
     eval_stats = eval_stats,
-    overall_cv_improvement = overall_cv_improvement,  # Primary metric (Olink standard)
-    overall_sd_improvement = overall_sd_improvement,  # Secondary metric
-    overall_improvement = overall_cv_improvement  # For backward compatibility
+    overall_delta_med_improvement = overall_delta_med_improvement,  # PRIMARY: between-batch alignment
+    overall_cv_improvement = overall_cv_improvement,   # Secondary: within-batch CV
+    overall_sd_improvement = overall_sd_improvement,   # Secondary: within-batch SD
+    overall_improvement = overall_delta_med_improvement  # For backward compatibility (now uses ΔMED)
   ))
 }
 
@@ -2575,43 +2714,44 @@ main <- function() {
     all_evaluations <- rbind(all_evaluations, eval_combat$eval_stats)
   }
 
-  # Select best method based on CV reduction (Olink standard, primary metric)
-  # NOTE: CV is now valid since we use additive normalization (not multiplicative)
-  bridge_cv_reduction <- eval_bridge$overall_cv_improvement
-  median_cv_reduction <- eval_median$overall_cv_improvement
-  combat_cv_reduction <- if(!is.null(eval_combat)) eval_combat$overall_cv_improvement else -Inf
+  # Select best method based on between-batch median difference reduction (ΔMED)
+  # ΔMED measures how well per-protein batch offsets are corrected — the primary
+  # goal of Olink-standard bridge normalisation (additive shift per protein).
+  # Within-batch SD is invariant under additive shifts, so it cannot discriminate
+  # Bridge/Median methods; ΔMED can.
+  bridge_dmed_reduction <- eval_bridge$overall_delta_med_improvement
+  median_dmed_reduction <- eval_median$overall_delta_med_improvement
+  combat_dmed_reduction <- if(!is.null(eval_combat)) eval_combat$overall_delta_med_improvement else -Inf
 
-  # Also track SD for secondary comparison
+  # Secondary metrics (within-batch, for diagnostics only)
   bridge_sd_reduction <- eval_bridge$overall_sd_improvement
   median_sd_reduction <- eval_median$overall_sd_improvement
   combat_sd_reduction <- if(!is.null(eval_combat)) eval_combat$overall_sd_improvement else -Inf
 
   best_method <- "bridge"
-  best_cv_reduction <- bridge_cv_reduction
-  best_sd_reduction <- bridge_sd_reduction
+  best_dmed_reduction <- bridge_dmed_reduction
 
-  if (median_cv_reduction > best_cv_reduction) {
+  if (median_dmed_reduction > best_dmed_reduction) {
     best_method <- "median"
-    best_cv_reduction <- median_cv_reduction
-    best_sd_reduction <- median_sd_reduction
+    best_dmed_reduction <- median_dmed_reduction
   }
-  if (combat_cv_reduction > best_cv_reduction) {
+  if (combat_dmed_reduction > best_dmed_reduction) {
     best_method <- "combat"
-    best_cv_reduction <- combat_cv_reduction
-    best_sd_reduction <- combat_sd_reduction
+    best_dmed_reduction <- combat_dmed_reduction
   }
 
   log_info("")
   log_info("╔══════════════════════════════════════════════════════════════════╗")
-  log_info("║ METHOD COMPARISON (CV & SD REDUCTION %)                          ║")
+  log_info("║ METHOD COMPARISON (BETWEEN-BATCH ΔMED REDUCTION %)               ║")
   log_info("╚══════════════════════════════════════════════════════════════════╝")
-  log_info("  Bridge method: CV improvement = {round(bridge_cv_reduction, 2)}%, SD improvement = {round(bridge_sd_reduction, 2)}%")
-  log_info("  Median method: CV improvement = {round(median_cv_reduction, 2)}%, SD improvement = {round(median_sd_reduction, 2)}%")
+  log_info("  Bridge method: ΔMED reduction = {round(bridge_dmed_reduction, 2)}% (within-batch SD change = {round(bridge_sd_reduction, 2)}%)")
+  log_info("  Median method: ΔMED reduction = {round(median_dmed_reduction, 2)}% (within-batch SD change = {round(median_sd_reduction, 2)}%)")
   if(!is.null(eval_combat)) {
-    log_info("  ComBat method: CV improvement = {round(combat_cv_reduction, 2)}%, SD improvement = {round(combat_sd_reduction, 2)}%")
+    log_info("  ComBat method: ΔMED reduction = {round(combat_dmed_reduction, 2)}% (within-batch SD change = {round(combat_sd_reduction, 2)}%)")
   }
   log_info("")
-  log_info("  ★ Best method: {toupper(best_method)} (CV improvement: {round(best_cv_reduction, 2)}%, SD improvement: {round(best_sd_reduction, 2)}%)")
+  log_info("  ★ Best method: {toupper(best_method)} (ΔMED reduction: {round(best_dmed_reduction, 2)}%)")
+  log_info("  NOTE: Within-batch SD is invariant under additive shifts (Bridge, Median)")
   log_info("════════════════════════════════════════════════════════════════════")
 
   # Create PCA plots AFTER normalization (using bridge method as primary)
@@ -2942,29 +3082,24 @@ main <- function() {
   cat("└─────────────────────────────────────────────────────────────────────────────┘\n")
   cat("\n")
   cat("┌─────────────────────────────────────────────────────────────────────────────┐\n")
-  cat("│ METHOD COMPARISON (SD REDUCTION %)                                          │\n")
+  cat("│ METHOD COMPARISON (BETWEEN-BATCH ΔMED REDUCTION %)                        │\n")
+  cat("│ ΔMED = mean |median_B1 - median_B2| per protein (lower = better aligned)  │\n")
   cat("├─────────────────────────────────────────────────────────────────────────────┤\n")
-  cat(sprintf("│ Bridge:  Batch1=%6.2f%%, Batch2=%6.2f%%, Average=%6.2f%%              │\n",
-      eval_bridge$eval_stats[batch == "batch_01"]$sd_reduction_pct,
-      eval_bridge$eval_stats[batch == "batch_02"]$sd_reduction_pct,
-      bridge_sd_reduction))
-  cat(sprintf("│ Median:  Batch1=%6.2f%%, Batch2=%6.2f%%, Average=%6.2f%%              │\n",
-      eval_median$eval_stats[batch == "batch_01"]$sd_reduction_pct,
-      eval_median$eval_stats[batch == "batch_02"]$sd_reduction_pct,
-      median_sd_reduction))
+  cat(sprintf("│ Bridge:  ΔMED reduction = %6.2f%%                                          │\n",
+      bridge_dmed_reduction))
+  cat(sprintf("│ Median:  ΔMED reduction = %6.2f%%                                          │\n",
+      median_dmed_reduction))
   if(!is.null(eval_combat)) {
-    cat(sprintf("│ ComBat:  Batch1=%6.2f%%, Batch2=%6.2f%%, Average=%6.2f%%              │\n",
-        eval_combat$eval_stats[batch == "batch_01"]$sd_reduction_pct,
-        eval_combat$eval_stats[batch == "batch_02"]$sd_reduction_pct,
-        combat_sd_reduction))
+    cat(sprintf("│ ComBat:  ΔMED reduction = %6.2f%%                                          │\n",
+        combat_dmed_reduction))
   }
   cat("└─────────────────────────────────────────────────────────────────────────────┘\n")
   cat("\n")
   cat("┌─────────────────────────────────────────────────────────────────────────────┐\n")
   cat("│ ★ BEST METHOD SELECTION                                                     │\n")
   cat("├─────────────────────────────────────────────────────────────────────────────┤\n")
-  cat(sprintf("│ Best method:     %-58s│\n", toupper(best_method)))
-  cat(sprintf("│ SD improvement:  %.2f%%                                                     │\n", best_sd_reduction))
+  cat(sprintf("│ Best method:       %-56s│\n", toupper(best_method)))
+  cat(sprintf("│ ΔMED improvement:  %6.2f%%                                                  │\n", best_dmed_reduction))
   cat("│                                                                             │\n")
   cat("│ OUTPUT FILES:                                                               │\n")
   cat("│   Per-batch: 07_npx_matrix_cross_batch_bridge_{batch}.rds                   │\n")

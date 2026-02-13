@@ -133,9 +133,22 @@ parameters:
     # If empty list [], no bridgeability plots will be generated
     # Example: ["IL6", "TNF", "OID40770", "MST1", "LAIR2"]
     bridgeability_proteins: []  # List of proteins for per-protein bridgeability assessment
+    # Optional: exclude specific bridging sample IDs from both normalisation (07) and KPI (07b)
+    # List SampleIDs to remove. Leave as empty list [] to include all bridging samples.
+    # Example: ["SAMPLE_001", "SAMPLE_002"]
+    exclude_bridge_sample_ids: []
     # Post-hoc KPI evaluation of harmonisation efficacy (Step 07b)
     # Computes distance metrics, noise floor ratio, kBET, LISI, biology preservation, and outlier detection
     run_kpi_evaluation: false  # Set to true to run cross-batch harmonisation KPI after step 07
+
+  # KPI evaluation parameters (Step 07b)
+  kpi:
+    # PCA configuration for fixed basis (trained on pre-harmonisation combined data)
+    pca_max_pcs: 50  # Maximum number of principal components to retain
+    pca_var_threshold: 0.95  # Cumulative variance threshold (0.95 = 95% variance explained)
+    # NA handling policy: complete-case preferred; impute only if missingness is very low
+    na_impute_overall_max_frac: 0.001  # Maximum missingness fraction (0.1%) to allow median imputation
+    complete_case_pca_min_rows: 200  # Minimum complete rows required for complete-case PCA
 
   # Aggregation (only used when multi_batch_mode: true)
   aggregation:

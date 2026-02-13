@@ -12,6 +12,7 @@ cran_packages <- c(
   "logger",
   "ggplot2",
   "ggrepel",
+  "ggpubr",  # For paired plots and statistical comparisons (Step 07b KPI)
   "optparse",
   "moments",
   "gridExtra",
@@ -24,6 +25,14 @@ cran_packages <- c(
   "PRROC",
   "e1071",
   "rpart",
+  # Statistical and clustering packages (Step 07b KPI)
+  "cluster",  # For silhouette scores
+  "MASS",  # For robust covariance estimation
+  "irr",  # For intraclass correlation coefficient (ICC)
+  "DescTools",  # For concordance correlation coefficient (CCC)
+  "FNN",  # For fast k-nearest neighbour search (vectorised rank computation)
+  "lisi",  # For local inverse Simpson index (batch mixing metric)
+  "nationalparkcolors",  # For Acadia colour palette (bridge protein correlation heatmaps)
   # Enhanced modeling dependencies
   "randomForest",
   "xgboost",
@@ -49,10 +58,16 @@ if(!requireNamespace("BiocManager", quietly = TRUE)) {
   install.packages("BiocManager", repos = "https://cloud.r-project.org/")
 }
 
-# Install sva for ComBat
-if(!requireNamespace("sva", quietly = TRUE)) {
-  cat("Installing sva from BioConductor...\n")
-  BiocManager::install("sva", quiet = TRUE, update = FALSE)
+# Install BioConductor packages
+bioc_packages <- c("sva", "kBET")  # sva for ComBat, kBET for batch effect testing (Step 07b KPI)
+
+for(pkg in bioc_packages) {
+  if(!requireNamespace(pkg, quietly = TRUE)) {
+    cat("Installing", pkg, "from BioConductor...\n")
+    BiocManager::install(pkg, quiet = TRUE, update = FALSE)
+  } else {
+    cat(pkg, "already installed\n")
+  }
 }
 
 # OlinkAnalyze might need special handling
@@ -75,9 +90,26 @@ suppressPackageStartupMessages({
   library(yaml)
   library(logger)
   library(ggplot2)
+  library(ggpubr)
+  library(cluster)
+  library(MASS)
+  library(FNN)
 })
 
 cat("Core packages loaded successfully!\n")
+
+# Test BioConductor packages
+if (requireNamespace("kBET", quietly = TRUE)) {
+  cat("kBET package loaded successfully\n")
+} else {
+  cat("Warning: kBET package not available\n")
+}
+
+if (requireNamespace("lisi", quietly = TRUE)) {
+  cat("lisi package loaded successfully\n")
+} else {
+  cat("Warning: lisi package not available\n")
+}
 
 # Keras/TensorFlow backend setup (optional)
 if (requireNamespace("keras3", quietly = TRUE) || requireNamespace("keras", quietly = TRUE)) {

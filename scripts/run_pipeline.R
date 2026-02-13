@@ -389,6 +389,14 @@ run_cross_batch_step <- function(step_name, batches, config, dry_run = FALSE) {
       return(TRUE)
     },
     error = function(e) {
+      # Check if this is a skip signal (not a real error)
+      if (e$message == "STEP_SKIPPED" || Sys.getenv("PIPELINE_STEP_SKIPPED", "FALSE") == "TRUE") {
+        success_msg <- paste0("⊘ Cross-batch step ", step_name, " skipped\n")
+        cat(success_msg)
+        log_info("Cross-batch step {step_name} was skipped")
+        return(TRUE)
+      }
+      # Real error - report it
       error_msg <- paste0("✗ Cross-batch step ", step_name, " failed: ", e$message, "\n")
       cat(error_msg, file = stderr())
       log_error("Cross-batch step {step_name} failed: {e$message}")

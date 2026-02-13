@@ -61,11 +61,18 @@ tests/
 # Sensitive documentation and Development notes
 # All development markdown files with numeric prefixes (00_-99_)
 [0-9][0-9]_*.md
+*.plan.md
 COMMIT_MESSAGE*.txt
 SEX_OUTLIER_DETECTION_ALGORITHM.md
+*REPORT*.md
 
 # Development docs in subdirectories
 docs/GIT_WORKFLOW.md
+
+# Development / scratch code (keep untracked)
+scratch*.R
+*_dev.R
+*_scratch*.R
 
 # Runtime logs (generated during runs)
 *.log

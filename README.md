@@ -535,11 +535,13 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   - `parameters.bridge_normalization.reference_batch`: Reference batch ID ("batch_01", "batch_02", or null for auto-select)
   - `parameters.bridge_normalization.method`: "olink_standard" (default) or "combined_reference"
   - `parameters.bridge_normalization.bridgeability_proteins`: List of protein names/OlinkIDs for detailed QC plots (empty list = skip)
+  - `parameters.bridge_normalization.exclude_bridge_sample_ids`: Optional list of SampleIDs to exclude from bridge normalisation and KPI (empty list = include all)
 
 #### 07b_cross_batch_harmonisation_kpi.R (Optional — Multi-Batch Only)
 - **Purpose**: Post-hoc evaluation of bridge normalisation efficacy with a comprehensive KPI dashboard
 - **When to run**: After Step 07 completes, when `run_kpi_evaluation: true` in config
-- **Input**: QC-passed matrices (Step 05d) as pre-harmonisation reference, bridge-normalised matrices (Step 07) as post-harmonisation
+- **Input**: QC-passed matrices (Step 05d) as pre-harmonisation reference, bridge-normalised matrices (Step 07) as post-harmonisation. Respects `exclude_bridge_sample_ids` so excluded bridge pairs are not used in metrics or plots.
+- **PCA NA policy**: Complete-case preferred; median imputation only when overall missingness ≤ `parameters.kpi.na_impute_overall_max_frac` (default 0.1%). Configurable via `pca_max_pcs`, `complete_case_pca_min_rows`, and `pca_var_threshold`.
 - **KPI Metrics**:
   1. **Bridge pair collapse**: Euclidean distance, Mahalanobis distance, ICC, CCC (pre vs post)
   2. **Effect size**: Paired log-ratio with bootstrap 95% CI, Wilcoxon signed-rank test
@@ -548,7 +550,8 @@ All samples are flagged but not removed until final QC integration (Step 05d), w
   5. **Batch separability**: Silhouette score, kBET acceptance rate, LISI score, Batch Separability AUC
   6. **Biology preservation**: Sex prediction accuracy (pre vs post), variance decomposition (batch vs sex)
   7. **Outlier detection**: Bridge pair flags (Mahalanobis + noise ratio), per-protein harmonisation (MSE/R²)
-- **Dashboard**: Multi-page PDF with dumbbell plots, PCA scatter, distance ECDF, correlation heatmaps, variance decomposition, and outlier drill-down panels
+- **Dashboard**: Multi-page PDF with theme_bw styling, multi-line subtitles with key metrics, dumbbell plots, PCA scatter, distance ECDF, RdBu bridge protein correlation heatmaps with row annotation for flagged samples, nearest-neighbour pairing heatmap with row strip, variance decomposition (y-axis capped at 100%, jittered high-variance points), and batch separability facets with pre/post values.
+- **Configuration** (under `parameters.kpi`): `pca_max_pcs`, `pca_var_threshold`, `na_impute_overall_max_frac`, `complete_case_pca_min_rows`. Bridge sample exclusion is shared with Step 07 via `parameters.bridge_normalization.exclude_bridge_sample_ids`.
 - **Output**:
   - `07b_kpi_summary_{batch}.tsv`: Summary table of all KPI metrics
   - `07b_kpi_dashboard_{batch}.pdf`: Multi-page visualisation dashboard
@@ -1144,6 +1147,17 @@ parameters:
       - "LAIR2"
       - "ACP6"
       # ... add more proteins as needed
+    # Optional: exclude specific bridge SampleIDs from normalisation and KPI (Step 07b)
+    exclude_bridge_sample_ids: []  # e.g. ["SAMPLE_001", "SAMPLE_002"]
+    # Post-hoc KPI evaluation (Step 07b)
+    run_kpi_evaluation: true
+
+  # KPI evaluation parameters (Step 07b)
+  kpi:
+    pca_max_pcs: 100
+    pca_var_threshold: 0.95
+    na_impute_overall_max_frac: 0.001  # 0.1% max missingness for median imputation
+    complete_case_pca_min_rows: 200
 ```
 
 **Bridge Normalization Methods:**
@@ -1276,6 +1290,7 @@ Bridge samples are shared across batches and are essential for cross-batch harmo
 - **Core**: data.table, tidyverse, arrow, yaml, logger
 - **Analysis**: glmnet, pheatmap, pROC, PRROC, OlinkAnalyze, sva
 - **Visualisation**: ggplot2, ggpubr, ggrepel, paletteer, gridExtra
+- **Step 07b (KPI)**: cluster, MASS, irr, DescTools, FNN, lisi, kBET (Bioc), nationalparkcolors
 - **Optional**: randomForest, xgboost, caret, keras3, tensorflow
 
 ### External Tools
